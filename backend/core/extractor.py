@@ -41,6 +41,7 @@ class YouTubeExtractor:
 
     def _get_ydl_options(self, client: str = 'web_embedded') -> Dict[str, Any]:
         import shutil
+        import os
         from pathlib import Path
         opts = {
             'quiet': True,
@@ -48,6 +49,7 @@ class YouTubeExtractor:
             'skip_download': True,
             'live_from_start': True,
             'force_ipv4': True,
+            'socket_timeout': 8,
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
             },
@@ -62,7 +64,11 @@ class YouTubeExtractor:
         try:
             import deno
             deno_bin = deno.find_deno_bin()
-            if deno_bin:
+            if deno_bin and os.path.exists(deno_bin):
+                try:
+                    os.chmod(deno_bin, 0o755)
+                except Exception:
+                    pass
                 opts['js_runtimes'] = {'deno': {'path': str(deno_bin)}}
         except Exception:
             deno_bin = shutil.which('deno')
