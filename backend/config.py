@@ -18,5 +18,5 @@ TEMP_DIR.mkdir(parents=True, exist_ok=True)
 METADATA_CACHE_TTL = 7200
 
 # Server settings
-HOST = "127.0.0.1"
-PORT = 8000
+HOST = os.environ.get("HOST", "0.0.0.0")
+PORT = int(os.environ.get("PORT", 8000))
