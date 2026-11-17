@@ -40,15 +40,21 @@ class ClipManager {
 
   removeClip(id) {
     if (this.clips.length <= 1) {
-      alert("At least one clip range must be retained.");
+      if (window.showToast) {
+        window.showToast("At least one clip range must be retained.", "warning");
+      }
       return;
     }
+    const wasActive = (this.activeClipId === id);
     this.clips = this.clips.filter(c => c.id !== id);
-    if (this.activeClipId === id) {
+    if (wasActive) {
       this.activeClipId = this.clips[0] ? this.clips[0].id : null;
     }
     this.render();
     this.onListChange(this.clips, this.activeClipId);
+    if (wasActive) {
+      this.onActiveChange(this.getActiveClip());
+    }
   }
 
   getActiveClip() {
@@ -98,7 +104,7 @@ class ClipManager {
             <button class="btn btn-primary btn-sm btn-export" data-id="${clip.id}" title="Export this clip">
               Export
             </button>
-            <button class="btn btn-danger btn-sm btn-delete" data-id="${clip.id}" title="Delete clip">
+            <button class="btn btn-danger btn-sm btn-delete" data-id="${clip.id}" title="${this.clips.length <= 1 ? 'At least one clip must be retained' : 'Delete clip'}" ${this.clips.length <= 1 ? 'disabled style="opacity: 0.35; cursor: not-allowed;"' : ''}>
               ✕
             </button>
           </div>

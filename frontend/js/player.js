@@ -17,6 +17,8 @@ class VideoPlayerController {
     this.timeUpdateCallbacks = [];
     this._pollInterval = null;
 
+    this.isYouTubeApiLoaded = false;
+    this.pendingVideoId = null;
     this._initYouTubeAPI();
   }
 
@@ -24,13 +26,22 @@ class VideoPlayerController {
     if (window.YT && window.YT.Player) {
       this.isYouTubeApiLoaded = true;
     } else {
-      const tag = document.createElement('script');
-      tag.src = "https://www.youtube.com/iframe_api";
-      const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+      const prevCallback = window.onYouTubeIframeAPIReady;
       window.onYouTubeIframeAPIReady = () => {
         this.isYouTubeApiLoaded = true;
+        if (typeof prevCallback === 'function') prevCallback();
+        if (this.pendingVideoId) {
+          const vid = this.pendingVideoId;
+          this.pendingVideoId = null;
+          this.loadYouTube(vid);
+        }
       };
+      if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+        const tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        const firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+      }
     }
   }
 
@@ -40,32 +51,42 @@ class VideoPlayerController {
     this.ytContainer.style.display = 'block';
     this.placeholder.style.display = 'none';
 
+    if (!window.YT || !window.YT.Player) {
+      this.pendingVideoId = videoId;
+      return;
+    }
+
     if (this.ytPlayer && this.ytPlayer.loadVideoById) {
       this.ytPlayer.loadVideoById(videoId);
       this.isReady = true;
     } else {
-      this.ytPlayer = new YT.Player('yt-player-container', {
-        height: '100%',
-        width: '100%',
-        videoId: videoId,
-        playerVars: {
-          playsinline: 1,
-          rel: 0,
-          modestbranding: 1
-        },
-        events: {
-          onReady: () => {
-            this.isReady = true;
-            this.duration = this.ytPlayer.getDuration();
+      try {
+        this.ytPlayer = new YT.Player('yt-player-container', {
+          height: '100%',
+          width: '100%',
+          videoId: videoId,
+          playerVars: {
+            playsinline: 1,
+            rel: 0,
+            modestbranding: 1
           },
-          onStateChange: (event) => {
-            // YT.PlayerState.ENDED = 0
-            if (event.data === 0 && this.previewActive) {
-              this.seekTo(this.previewStart);
+          events: {
+            onReady: () => {
+              this.isReady = true;
+              this.duration = this.ytPlayer.getDuration();
+            },
+            onStateChange: (event) => {
+              // YT.PlayerState.ENDED = 0
+              if (event.data === 0 && this.previewActive) {
+                this.seekTo(this.previewStart);
+              }
             }
           }
-        }
-      });
+        });
+      } catch (err) {
+        console.warn("YouTube Player initialization queued:", err);
+        this.pendingVideoId = videoId;
+      }
     }
 
     this._startPolling();

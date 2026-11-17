@@ -21,13 +21,18 @@ async def get_video_info(req: VideoInfoRequest):
         url = req.url.strip()
         if not url:
             raise HTTPException(status_code=400, detail="Please enter a valid YouTube video or livestream URL.")
+        if not ("youtube.com" in url or "youtu.be" in url):
+            raise HTTPException(status_code=400, detail="Invalid URL: Please provide a valid YouTube video or livestream link.")
 
         info_resp, _ = extractor.get_video_info(url)
         return info_resp
+    except HTTPException:
+        raise
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load video metadata: {str(e)}")
+        clean_msg = str(e).split("\n")[0].replace("ERROR:", "").strip()
+        raise HTTPException(status_code=400, detail=f"Could not retrieve video info: {clean_msg}")
 
 @router.post("/upload-video", response_model=VideoInfoResponse)
 async def upload_local_video(file: UploadFile = File(...)):

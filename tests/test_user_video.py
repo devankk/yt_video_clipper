@@ -10,7 +10,7 @@ def test_user_video_export():
     print(f"\n--- Testing User Video: {USER_URL} ---")
     with httpx.Client(base_url=BASE_URL, timeout=60.0) as client:
         # 1. Fetch info
-        res = client.get("/api/video-info", params={"url": USER_URL})
+        res = client.post("/api/video-info", json={"url": USER_URL})
         assert res.status_code == 200, f"Failed info: {res.text}"
         info = res.json()
         print(f"Title: {info['title']}")

@@ -51,6 +51,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let currentVideoData = null;
 
+  // Modern Non-Blocking Toast Notification System
+  function showToast(message, type = 'info') {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toast-container';
+      container.className = 'toast-container';
+      document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `toast-item toast-${type}`;
+    const icon = type === 'success' ? '✓' : type === 'error' ? '⚠' : type === 'warning' ? '!' : 'ℹ';
+    toast.innerHTML = `
+      <span class="toast-icon">${icon}</span>
+      <span class="toast-msg">${message}</span>
+    `;
+
+    container.appendChild(toast);
+    setTimeout(() => toast.classList.add('show'), 10);
+
+    setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => toast.remove(), 300);
+    }, 3500);
+  }
+  window.showToast = showToast;
+
   // Initialize Player
   const player = new VideoPlayerController();
 
@@ -95,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnLoad.addEventListener('click', async () => {
     const url = urlInput.value.trim();
     if (!url) {
-      alert("Please enter a valid YouTube video or livestream URL.");
+      showToast("Please enter a YouTube video or livestream URL.", "warning");
       return;
     }
 
@@ -146,8 +174,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const active = clipManager.getActiveClip();
       if (active) syncInputsFromClip(active);
 
+      showToast("Video loaded successfully!", "success");
+
     } catch (err) {
-      alert(err.message || "Could not load video. Check the link and try again.");
+      showToast(err.message || "Could not load video. Check the link and try again.", "error");
     } finally {
       btnLoad.disabled = false;
       btnLoad.textContent = "Load Video";
@@ -194,8 +224,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const active = clipManager.getActiveClip();
       if (active) syncInputsFromClip(active);
 
+      showToast("Local file loaded successfully!", "success");
+
     } catch (err) {
-      alert(err.message || "Failed to load local file.");
+      showToast(err.message || "Failed to load local file.", "error");
     } finally {
       btnUploadLocal.disabled = false;
       btnUploadLocal.textContent = "Upload Local File";
@@ -212,6 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const current = player.getCurrentTime();
     const clip = clipManager.addClip(current, Math.min(timeline.totalDuration, current + 120));
     syncInputsFromClip(clip);
+    showToast(`Added ${clip.name}`, "info");
   });
 
   // "Set Start" & "Set End"
@@ -233,7 +266,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const active = clipManager.getActiveClip();
     if (active) {
       if (curr <= active.start_time) {
-        alert("End time cannot be earlier than start time.");
+        showToast("End time cannot be earlier than start time.", "warning");
         return;
       }
       active.end_time = curr;
@@ -250,19 +283,54 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Numerical inputs change handlers
+  // Numerical inputs change handlers with validation
+  const timeInputs = [startH, startM, startS, endH, endM, endS];
   const handleNumericInputs = () => {
-    const startSec = (parseInt(startH.value) || 0) * 3600 + (parseInt(startM.value) || 0) * 60 + (parseInt(startS.value) || 0);
-    const endSec = (parseInt(endH.value) || 0) * 3600 + (parseInt(endM.value) || 0) * 60 + (parseInt(endS.value) || 0);
+    const startSec = (parseInt(startH.value, 10) || 0) * 3600 + (parseInt(startM.value, 10) || 0) * 60 + (parseInt(startS.value, 10) || 0);
+    const endSec = (parseInt(endH.value, 10) || 0) * 3600 + (parseInt(endM.value, 10) || 0) * 60 + (parseInt(endS.value, 10) || 0);
 
     if (endSec > startSec) {
+      timeInputs.forEach(el => el.classList.remove('is-invalid'));
+      selectedDurationEl.classList.remove('is-invalid-text');
+      btnExportCurrent.disabled = false;
+      btnPreviewClip.disabled = false;
       clipManager.updateActiveTimestamps(startSec, endSec);
       updateDurationBadge(endSec - startSec);
+    } else {
+      timeInputs.forEach(el => el.classList.add('is-invalid'));
+      selectedDurationEl.classList.add('is-invalid-text');
+      selectedDurationEl.textContent = "End time must be after Start time";
+      btnExportCurrent.disabled = true;
+      btnPreviewClip.disabled = true;
     }
   };
 
-  [startH, startM, startS, endH, endM, endS].forEach(el => {
+  // Keyboard Steppers & Auto-Padding
+  timeInputs.forEach(el => {
     el.addEventListener('input', handleNumericInputs);
+
+    el.addEventListener('keydown', (e) => {
+      let val = parseInt(el.value, 10) || 0;
+      const isHour = el.id.includes('-h');
+      const maxVal = isHour ? 99 : 59;
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        val = val >= maxVal ? 0 : val + 1;
+        el.value = val.toString().padStart(2, '0');
+        handleNumericInputs();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        val = val <= 0 ? maxVal : val - 1;
+        el.value = val.toString().padStart(2, '0');
+        handleNumericInputs();
+      }
+    });
+
+    el.addEventListener('blur', () => {
+      let val = parseInt(el.value, 10) || 0;
+      el.value = Math.max(0, val).toString().padStart(2, '0');
+      handleNumericInputs();
+    });
   });
 
   function syncInputsFromClip(clip) {
@@ -275,6 +343,11 @@ document.addEventListener('DOMContentLoaded', () => {
     endH.value = Math.floor(e / 3600).toString().padStart(2, '0');
     endM.value = Math.floor((e % 3600) / 60).toString().padStart(2, '0');
     endS.value = (e % 60).toString().padStart(2, '0');
+
+    timeInputs.forEach(el => el.classList.remove('is-invalid'));
+    selectedDurationEl.classList.remove('is-invalid-text');
+    btnExportCurrent.disabled = false;
+    btnPreviewClip.disabled = false;
 
     updateDurationBadge(clip.end_time - clip.start_time);
   }
@@ -302,7 +375,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function triggerSingleExport(clip) {
     const url = urlInput.value.trim();
     if (!url) {
-      alert("Please enter a YouTube video URL first.");
+      showToast("Please enter a YouTube video URL first.", "warning");
       return;
     }
 
@@ -345,11 +418,11 @@ document.addEventListener('DOMContentLoaded', () => {
   btnExportBatch.addEventListener('click', async () => {
     const url = urlInput.value.trim();
     if (!url) {
-      alert("Please enter a YouTube video URL first.");
+      showToast("Please enter a YouTube video URL first.", "warning");
       return;
     }
     if (clipManager.clips.length === 0) {
-      alert("Please add at least one clip range.");
+      showToast("Please add at least one clip range.", "warning");
       return;
     }
 

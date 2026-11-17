@@ -183,7 +183,7 @@ class TimelineEditor {
     let initialEnd = clip.end_time;
     let action = 'move';
 
-    const onMouseDown = (e) => {
+    const onPointerDown = (e) => {
       e.stopPropagation();
       action = e.target.dataset.action || 'move';
       startX = e.clientX;
@@ -194,7 +194,7 @@ class TimelineEditor {
       this.onClipChange(clip, 'select');
       this.renderClipBars();
 
-      const onMouseMove = (moveEvent) => {
+      const onPointerMove = (moveEvent) => {
         const dx = moveEvent.clientX - startX;
         const dt = (dx / this.getTrackWidth()) * this.totalDuration;
 
@@ -217,21 +217,21 @@ class TimelineEditor {
         this.renderClipBars();
       };
 
-      const onMouseUp = () => {
-        window.removeEventListener('mousemove', onMouseMove);
-        window.removeEventListener('mouseup', onMouseUp);
+      const onPointerUp = () => {
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
         this.onClipChange(clip, 'commit');
       };
 
-      window.addEventListener('mousemove', onMouseMove);
-      window.addEventListener('mouseup', onMouseUp);
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
     };
 
-    bar.addEventListener('mousedown', onMouseDown);
+    bar.addEventListener('pointerdown', onPointerDown);
   }
 
   _initEvents() {
-    // Scrubbing on ruler click
+    // Scrubbing on ruler click / touch
     const handleSeek = (e) => {
       const rect = this.canvasContainer.getBoundingClientRect();
       const clickX = e.clientX - rect.left;
@@ -240,15 +240,15 @@ class TimelineEditor {
       this.onSeek(targetTime);
     };
 
-    this.rulerCanvas.addEventListener('mousedown', (e) => {
+    this.rulerCanvas.addEventListener('pointerdown', (e) => {
       handleSeek(e);
       const onMove = (moveEvent) => handleSeek(moveEvent);
       const onUp = () => {
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
       };
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
     });
 
     // Horizontal wheel zoom / scroll
