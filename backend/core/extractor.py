@@ -43,7 +43,13 @@ class YouTubeExtractor:
         return {
             'quiet': True,
             'no_warnings': True,
-            'skip_download': True
+            'skip_download': True,
+            'live_from_start': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['visionos', 'web']
+                }
+            }
         }
 
     def get_video_info(self, url: str) -> Tuple[VideoInfoResponse, Dict[str, Any]]:
@@ -62,13 +68,30 @@ class YouTubeExtractor:
 
         # Fetch fresh info with yt-dlp
         ydl_opts = self._get_ydl_options()
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if not info:
-                raise ValueError("Could not retrieve video information from the provided URL.")
+        info = None
+        errors = []
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            errors.append(str(e))
+
+        if not info and clean_id:
+            try:
+                watch_url = f"https://www.youtube.com/watch?v={clean_id}"
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(watch_url, download=False)
+            except Exception as e:
+                errors.append(str(e))
+
+        if not info:
+            raise ValueError(f"Could not retrieve video information: {'; '.join(errors)}")
 
         # Cache the extracted raw info
         self._cache[clean_id] = (now, info)
+        if url != clean_id:
+            self._cache[url] = (now, info)
         return self._parse_info(info), info
 
     def get_raw_cached_info(self, url_or_id: str) -> Optional[Dict[str, Any]]:

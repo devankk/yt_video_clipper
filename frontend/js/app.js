@@ -460,16 +460,13 @@ document.addEventListener('DOMContentLoaded', () => {
     openModal("Exporting Clip", "Initiating high-speed export...");
 
     try {
-      if (!currentVideoData) {
-        updateModalProgress(10, "Fetching video metadata...");
-        currentVideoData = await API.getVideoInfo(url);
-      }
-
       const mode = exportModeSelect.value;
       const quality = exportQualitySelect ? exportQualitySelect.value : "highest";
+      const vidId = currentVideoData?.video_id || extractYouTubeVideoId(url);
+
       const resp = await API.exportClip({
         url: url,
-        video_id: currentVideoData.video_id,
+        video_id: vidId,
         clip: clip,
         mode: mode,
         quality: quality
@@ -509,15 +506,13 @@ document.addEventListener('DOMContentLoaded', () => {
     openModal("Exporting All Clips", `Processing batch of ${clipManager.clips.length} clips...`);
 
     try {
-      if (!currentVideoData) {
-        updateModalProgress(10, "Fetching video metadata...");
-        currentVideoData = await API.getVideoInfo(url);
-      }
+      const vidId = currentVideoData?.video_id || extractYouTubeVideoId(url);
+      const title = currentVideoData?.title || "Livestream_Clips";
 
       const resp = await API.exportBatch({
         url: url,
-        video_id: currentVideoData.video_id,
-        title: currentVideoData.title,
+        video_id: vidId,
+        title: title,
         clips: clipManager.clips,
         mode: mode,
         quality: quality
@@ -595,10 +590,4 @@ document.addEventListener('DOMContentLoaded', () => {
   btnCloseModal.addEventListener('click', () => {
     exportModal.classList.remove('active');
   });
-
-  // Automatically load the designated test video on initial startup
-  urlInput.value = "https://www.youtube.com/watch?v=MMyh5bX84Js";
-  setTimeout(() => {
-    btnLoad.click();
-  }, 300);
 });

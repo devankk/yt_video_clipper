@@ -2,6 +2,7 @@
 Clip Export & Background Processing API Routes
 """
 import asyncio
+from typing import Optional
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -13,12 +14,34 @@ from backend.config import EXPORTS_DIR
 
 router = APIRouter(prefix="/api", tags=["clips"])
 
-def run_clip_export(job_id: str, raw_info: dict, clip, mode: str, quality: str = "highest"):
+def run_clip_export(job_id: str, url: str, video_id: Optional[str], clip, mode: str, quality: str = "highest"):
     job = job_manager.get_job(job_id)
     if not job:
         return
     try:
         job.status = "processing"
+        job.update(5, "Connecting to video stream...")
+
+        # 1. Check in-memory cache first
+        raw_info = extractor.get_raw_cached_info(video_id or url)
+        if not raw_info and (video_id or url):
+            clean_id = extract_video_id(video_id or url)
+            if clean_id:
+                raw_info = extractor.get_raw_cached_info(clean_id)
+
+        # 2. If not cached, extract stream metadata
+        if not raw_info:
+            job.update(10, "Resolving video stream fragments...")
+            target_url = url
+            clean_id = extract_video_id(video_id or url)
+            try:
+                _, raw_info = extractor.get_video_info(target_url)
+            except Exception:
+                if clean_id:
+                    _, raw_info = extractor.get_video_info(f"https://www.youtube.com/watch?v={clean_id}")
+                else:
+                    raise
+
         clean_title = sanitize_filename(raw_info.get("title", "Clip"))
         filename = f"{clean_title}_{int(clip.start_time)}s_to_{int(clip.end_time)}s_{quality}.mp4"
         out_file = EXPORTS_DIR / filename
@@ -38,20 +61,40 @@ def run_clip_export(job_id: str, raw_info: dict, clip, mode: str, quality: str =
             duration=duration
         )
     except Exception as e:
-        job.fail(str(e))
+        job.fail(f"Export processing failed: {str(e)}")
 
-def run_batch_export(job_id: str, raw_info: dict, clips: list, base_title: str, mode: str, quality: str = "highest"):
+def run_batch_export(job_id: str, url: str, video_id: Optional[str], clips: list, base_title: Optional[str], mode: str, quality: str = "highest"):
     job = job_manager.get_job(job_id)
     if not job:
         return
     try:
         job.status = "processing"
+        job.update(5, "Connecting to stream for batch processing...")
+
+        raw_info = extractor.get_raw_cached_info(video_id or url)
+        if not raw_info and (video_id or url):
+            clean_id = extract_video_id(video_id or url)
+            if clean_id:
+                raw_info = extractor.get_raw_cached_info(clean_id)
+
+        if not raw_info:
+            job.update(10, "Resolving video stream metadata for batch export...")
+            clean_id = extract_video_id(video_id or url)
+            try:
+                _, raw_info = extractor.get_video_info(url)
+            except Exception:
+                if clean_id:
+                    _, raw_info = extractor.get_video_info(f"https://www.youtube.com/watch?v={clean_id}")
+                else:
+                    raise
+
+        title = base_title or raw_info.get("title", "Livestream_Clips")
 
         def batch_progress_cb(pct: int, msg: str, curr: int, total: int):
             job.update(pct, msg)
 
         exported_files, zip_path = processor.process_batch(
-            raw_info, clips, base_title, mode=mode, quality=quality, progress_callback=batch_progress_cb
+            raw_info, clips, title, mode=mode, quality=quality, progress_callback=batch_progress_cb
         )
 
         zip_size = zip_path.stat().st_size if zip_path.exists() else 0
@@ -62,23 +105,27 @@ def run_batch_export(job_id: str, raw_info: dict, clips: list, base_title: str, 
             file_size=zip_size
         )
     except Exception as e:
-        job.fail(str(e))
+        job.fail(f"Batch export failed: {str(e)}")
 
 @router.post("/export-clip", response_model=JobStatusResponse)
 async def export_single_clip(req: ExportClipRequest, background_tasks: BackgroundTasks):
     """
     Enqueue an asynchronous export for a single clip range.
+    Responds immediately with queued job so UI never hangs.
     """
     if req.clip.end_time <= req.clip.start_time:
         raise HTTPException(status_code=400, detail="End time must be greater than start time.")
 
-    # Retrieve or fetch video info
-    raw_info = extractor.get_raw_cached_info(req.video_id or req.url)
-    if not raw_info:
-        _, raw_info = extractor.get_video_info(req.url)
-
     job = job_manager.create_job(job_type="single")
-    background_tasks.add_task(run_clip_export, job.job_id, raw_info, req.clip, req.mode, req.quality)
+    background_tasks.add_task(
+        run_clip_export, 
+        job.job_id, 
+        req.url, 
+        req.video_id, 
+        req.clip, 
+        req.mode, 
+        req.quality
+    )
     return job.to_response()
 
 @router.post("/export-batch", response_model=JobStatusResponse)
@@ -93,13 +140,17 @@ async def export_batch_clips(req: ExportBatchRequest, background_tasks: Backgrou
         if c.end_time <= c.start_time:
             raise HTTPException(status_code=400, detail=f"Clip '{c.name}' has invalid timestamps: End time must be greater than start time.")
 
-    raw_info = extractor.get_raw_cached_info(req.video_id or req.url)
-    if not raw_info:
-        _, raw_info = extractor.get_video_info(req.url)
-
-    title = req.title or raw_info.get("title", "Livestream_Clips")
     job = job_manager.create_job(job_type="batch")
-    background_tasks.add_task(run_batch_export, job.job_id, raw_info, req.clips, title, req.mode, req.quality)
+    background_tasks.add_task(
+        run_batch_export, 
+        job.job_id, 
+        req.url, 
+        req.video_id, 
+        req.clips, 
+        req.title, 
+        req.mode, 
+        req.quality
+    )
     return job.to_response()
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
