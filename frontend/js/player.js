@@ -15,6 +15,8 @@ class VideoPlayerController {
     this.previewEnd = 0;
     this.previewStart = 0;
     this.timeUpdateCallbacks = [];
+    this.durationCallbacks = [];
+    this.readyCallbacks = [];
     this._pollInterval = null;
 
     this.isYouTubeApiLoaded = false;
@@ -29,7 +31,9 @@ class VideoPlayerController {
       const prevCallback = window.onYouTubeIframeAPIReady;
       window.onYouTubeIframeAPIReady = () => {
         this.isYouTubeApiLoaded = true;
-        if (typeof prevCallback === 'function') prevCallback();
+        if (typeof prevCallback === 'function') {
+          try { prevCallback(); } catch (e) { console.warn(e); }
+        }
         if (this.pendingVideoId) {
           const vid = this.pendingVideoId;
           this.pendingVideoId = null;
@@ -40,25 +44,38 @@ class VideoPlayerController {
         const tag = document.createElement('script');
         tag.src = "https://www.youtube.com/iframe_api";
         const firstScriptTag = document.getElementsByTagName('script')[0];
-        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+        if (firstScriptTag && firstScriptTag.parentNode) {
+          firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+        } else {
+          document.head.appendChild(tag);
+        }
       }
     }
   }
 
   loadYouTube(videoId) {
     this.isYouTube = true;
-    this.html5Player.style.display = 'none';
-    this.ytContainer.style.display = 'block';
-    this.placeholder.style.display = 'none';
+    if (this.html5Player) this.html5Player.style.display = 'none';
+    if (this.ytContainer) this.ytContainer.style.display = 'block';
+    if (this.placeholder) this.placeholder.style.display = 'none';
 
     if (!window.YT || !window.YT.Player) {
       this.pendingVideoId = videoId;
       return;
     }
 
-    if (this.ytPlayer && this.ytPlayer.loadVideoById) {
-      this.ytPlayer.loadVideoById(videoId);
-      this.isReady = true;
+    if (this.ytPlayer) {
+      if (typeof this.ytPlayer.loadVideoById === 'function') {
+        try {
+          this.ytPlayer.loadVideoById(videoId);
+          this.isReady = true;
+        } catch (e) {
+          console.warn("loadVideoById error, queuing:", e);
+          this.pendingVideoId = videoId;
+        }
+      } else {
+        this.pendingVideoId = videoId;
+      }
     } else {
       try {
         this.ytPlayer = new YT.Player('yt-player-container', {
@@ -66,6 +83,7 @@ class VideoPlayerController {
           width: '100%',
           videoId: videoId,
           playerVars: {
+            autoplay: 0,
             playsinline: 1,
             rel: 0,
             modestbranding: 1
@@ -73,7 +91,19 @@ class VideoPlayerController {
           events: {
             onReady: () => {
               this.isReady = true;
-              this.duration = this.ytPlayer.getDuration();
+              if (this.pendingVideoId) {
+                const pending = this.pendingVideoId;
+                this.pendingVideoId = null;
+                if (typeof this.ytPlayer.loadVideoById === 'function') {
+                  this.ytPlayer.loadVideoById(pending);
+                }
+              }
+              const dur = this.ytPlayer.getDuration();
+              if (dur && dur > 0) {
+                this.duration = dur;
+                this._broadcastDuration(dur);
+              }
+              this._broadcastReady();
             },
             onStateChange: (event) => {
               // YT.PlayerState.ENDED = 0
@@ -84,7 +114,7 @@ class VideoPlayerController {
           }
         });
       } catch (err) {
-        console.warn("YouTube Player initialization queued:", err);
+        console.warn("YouTube Player initialization error:", err);
         this.pendingVideoId = videoId;
       }
     }
@@ -94,15 +124,17 @@ class VideoPlayerController {
 
   loadLocal(fileUrl) {
     this.isYouTube = false;
-    this.ytContainer.style.display = 'none';
-    this.html5Player.style.display = 'block';
-    this.placeholder.style.display = 'none';
+    if (this.ytContainer) this.ytContainer.style.display = 'none';
+    if (this.html5Player) this.html5Player.style.display = 'block';
+    if (this.placeholder) this.placeholder.style.display = 'none';
 
     this.html5Player.src = fileUrl;
     this.html5Player.load();
     this.html5Player.onloadedmetadata = () => {
       this.isReady = true;
       this.duration = this.html5Player.duration;
+      this._broadcastDuration(this.duration);
+      this._broadcastReady();
     };
 
     this.html5Player.ontimeupdate = () => {
@@ -112,8 +144,12 @@ class VideoPlayerController {
 
   seekTo(seconds) {
     const clamped = Math.max(0, Math.min(this.duration || 999999, seconds));
-    if (this.isYouTube && this.ytPlayer && this.ytPlayer.seekTo) {
-      this.ytPlayer.seekTo(clamped, true);
+    if (this.isYouTube && this.ytPlayer && typeof this.ytPlayer.seekTo === 'function') {
+      try {
+        this.ytPlayer.seekTo(clamped, true);
+      } catch (e) {
+        console.warn("seekTo error:", e);
+      }
     } else if (!this.isYouTube && this.html5Player) {
       this.html5Player.currentTime = clamped;
     }
@@ -122,16 +158,24 @@ class VideoPlayerController {
   }
 
   play() {
-    if (this.isYouTube && this.ytPlayer && this.ytPlayer.playVideo) {
-      this.ytPlayer.playVideo();
+    if (this.isYouTube && this.ytPlayer && typeof this.ytPlayer.playVideo === 'function') {
+      try {
+        this.ytPlayer.playVideo();
+      } catch (e) {
+        console.warn("playVideo error:", e);
+      }
     } else if (!this.isYouTube && this.html5Player) {
       this.html5Player.play();
     }
   }
 
   pause() {
-    if (this.isYouTube && this.ytPlayer && this.ytPlayer.pauseVideo) {
-      this.ytPlayer.pauseVideo();
+    if (this.isYouTube && this.ytPlayer && typeof this.ytPlayer.pauseVideo === 'function') {
+      try {
+        this.ytPlayer.pauseVideo();
+      } catch (e) {
+        console.warn("pauseVideo error:", e);
+      }
     } else if (!this.isYouTube && this.html5Player) {
       this.html5Player.pause();
     }
@@ -139,12 +183,28 @@ class VideoPlayerController {
   }
 
   getCurrentTime() {
-    if (this.isYouTube && this.ytPlayer && this.ytPlayer.getCurrentTime) {
-      return this.ytPlayer.getCurrentTime() || 0;
+    if (this.isYouTube && this.ytPlayer && typeof this.ytPlayer.getCurrentTime === 'function') {
+      try {
+        return this.ytPlayer.getCurrentTime() || 0;
+      } catch (e) {
+        return this.currentTime;
+      }
     } else if (!this.isYouTube && this.html5Player) {
       return this.html5Player.currentTime || 0;
     }
     return this.currentTime;
+  }
+
+  getDuration() {
+    if (this.isYouTube && this.ytPlayer && typeof this.ytPlayer.getDuration === 'function') {
+      try {
+        const d = this.ytPlayer.getDuration();
+        if (d && d > 0) return d;
+      } catch (e) {}
+    } else if (!this.isYouTube && this.html5Player) {
+      return this.html5Player.duration || 0;
+    }
+    return this.duration;
   }
 
   previewRange(startSec, endSec) {
@@ -159,12 +219,33 @@ class VideoPlayerController {
     this.timeUpdateCallbacks.push(callback);
   }
 
+  onDurationChange(callback) {
+    this.durationCallbacks.push(callback);
+  }
+
+  onReady(callback) {
+    if (this.isReady) {
+      try { callback(); } catch (e) {}
+    } else {
+      this.readyCallbacks.push(callback);
+    }
+  }
+
   _startPolling() {
     if (this._pollInterval) clearInterval(this._pollInterval);
     this._pollInterval = setInterval(() => {
-      if (this.isYouTube && this.ytPlayer && this.ytPlayer.getCurrentTime) {
-        const time = this.ytPlayer.getCurrentTime() || 0;
-        this._onTick(time);
+      if (this.isYouTube && this.ytPlayer && typeof this.ytPlayer.getCurrentTime === 'function') {
+        try {
+          const time = this.ytPlayer.getCurrentTime() || 0;
+          this._onTick(time);
+
+          // Update duration dynamically as player metadata stream loads
+          const dur = this.ytPlayer.getDuration();
+          if (dur && dur > 0 && Math.abs(dur - this.duration) > 0.5) {
+            this.duration = dur;
+            this._broadcastDuration(dur);
+          }
+        } catch (e) {}
       }
     }, 50);
   }
@@ -184,6 +265,18 @@ class VideoPlayerController {
   _broadcastTime(time) {
     for (const cb of this.timeUpdateCallbacks) {
       try { cb(time); } catch (e) { console.error(e); }
+    }
+  }
+
+  _broadcastDuration(duration) {
+    for (const cb of this.durationCallbacks) {
+      try { cb(duration); } catch (e) { console.error(e); }
+    }
+  }
+
+  _broadcastReady() {
+    for (const cb of this.readyCallbacks) {
+      try { cb(); } catch (e) { console.error(e); }
     }
   }
 }

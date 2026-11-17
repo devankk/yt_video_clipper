@@ -49,6 +49,10 @@ data/
 *.swp
 *.swo
 
+# Local scratch / test files
+check_*.py
+test_*.py
+
 # OS files
 .DS_Store
 Thumbs.db

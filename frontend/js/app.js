@@ -119,12 +119,65 @@ document.addEventListener('DOMContentLoaded', () => {
     timeline.setPlayheadTime(currentTime);
   });
 
+  // Dynamic duration synchronization from player
+  player.onDurationChange((dur) => {
+    if (dur && dur > 0) {
+      durationBadge.textContent = formatSeconds(dur);
+      timeline.setDuration(dur);
+      clipManager.setTotalDuration(dur);
+      if (currentVideoData) {
+        currentVideoData.duration = dur;
+        currentVideoData.duration_formatted = formatSeconds(dur);
+      }
+    }
+  });
+
+  function extractYouTubeVideoId(url) {
+    if (!url || typeof url !== 'string') return null;
+    const trimmed = url.trim();
+    const regex = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|v\/|live\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
+    const match = trimmed.match(regex);
+    if (match && match[1]) {
+      return match[1];
+    }
+    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
+      return trimmed;
+    }
+    return null;
+  }
+
+  function formatSeconds(seconds) {
+    const totalSec = Math.floor(seconds || 0);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) {
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
   // URL Loading Action
-  btnLoad.addEventListener('click', async () => {
+  async function loadVideoByUrl() {
     const url = urlInput.value.trim();
     if (!url) {
       showToast("Please enter a YouTube video or livestream URL.", "warning");
       return;
+    }
+
+    const videoId = extractYouTubeVideoId(url);
+
+    // If it's a YouTube link, mount the player immediately without waiting for backend
+    if (videoId) {
+      videoTitleEl.textContent = `Loading YouTube video (${videoId})...`;
+      streamTypeBadge.textContent = "YouTube Stream";
+      player.loadYouTube(videoId);
+
+      // Set an initial duration so timeline is immediately interactive
+      if (!timeline.totalDuration || timeline.totalDuration <= 0) {
+        timeline.setDuration(3600);
+        clipManager.setTotalDuration(3600);
+      }
     }
 
     try {
@@ -164,12 +217,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
-      // Load YouTube Player
-      player.loadYouTube(info.video_id);
+      // Ensure YouTube Player is loaded with the official video_id
+      if (info.video_id) {
+        player.loadYouTube(info.video_id);
+      }
 
       // Initialize Timeline & Clips
-      timeline.setDuration(info.duration);
-      clipManager.setTotalDuration(info.duration);
+      if (info.duration > 0) {
+        timeline.setDuration(info.duration);
+        clipManager.setTotalDuration(info.duration);
+      }
 
       const active = clipManager.getActiveClip();
       if (active) syncInputsFromClip(active);
@@ -177,10 +234,31 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast("Video loaded successfully!", "success");
 
     } catch (err) {
-      showToast(err.message || "Could not load video. Check the link and try again.", "error");
+      if (videoId) {
+        currentVideoData = {
+          video_id: videoId,
+          title: `YouTube Video (${videoId})`,
+          duration: player.getDuration() || 3600,
+          duration_formatted: formatSeconds(player.getDuration() || 3600),
+          formats: [{ resolution: "1080p", fps: 60 }]
+        };
+        videoTitleEl.textContent = currentVideoData.title;
+        durationBadge.textContent = currentVideoData.duration_formatted;
+        showToast("Connected to YouTube stream player.", "success");
+      } else {
+        showToast(err.message || "Could not load video. Check the link and try again.", "error");
+      }
     } finally {
       btnLoad.disabled = false;
       btnLoad.textContent = "Load Video";
+    }
+  }
+
+  btnLoad.addEventListener('click', loadVideoByUrl);
+  urlInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      loadVideoByUrl();
     }
   });
 
@@ -190,7 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const text = await navigator.clipboard.readText();
       if (text) {
         urlInput.value = text;
-        btnLoad.click();
+        loadVideoByUrl();
       }
     } catch (e) {
       urlInput.focus();

@@ -36,16 +36,13 @@ class YouTubeExtractor:
         # In-memory session cache: video_id -> (timestamp, raw_info_dict)
         self._cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
+    def extract_video_id(self, url: str) -> str:
+        return extract_video_id(url)
+
     def _get_ydl_options(self) -> Dict[str, Any]:
         return {
             'quiet': True,
             'no_warnings': True,
-            'js_runtimes': {'node': {}},
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['visionos', 'android', 'web']
-                }
-            },
             'skip_download': True
         }
 
