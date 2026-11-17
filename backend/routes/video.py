@@ -30,14 +30,32 @@ async def get_video_info(req: VideoInfoRequest):
         raise
     except Exception as e:
         clean_id = extract_video_id(url) or "video"
+        title = f"YouTube Stream ({clean_id})"
+        channel = "YouTube"
+        try:
+            import urllib.request
+            import json
+            req_oe = urllib.request.Request(
+                f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={clean_id}&format=json",
+                headers={"User-Agent": "Mozilla/5.0"}
+            )
+            with urllib.request.urlopen(req_oe, timeout=3) as resp:
+                oe_data = json.loads(resp.read().decode())
+                if oe_data.get("title"):
+                    title = oe_data["title"]
+                if oe_data.get("author_name"):
+                    channel = oe_data["author_name"]
+        except Exception:
+            pass
+
         # Return fallback response so the client is never blocked even if datacenter IP is challenged
         return VideoInfoResponse(
             video_id=clean_id,
-            title=f"YouTube Stream ({clean_id})",
+            title=title,
             duration=3600.0,
             duration_formatted="01:00:00",
             thumbnail=f"https://img.youtube.com/vi/{clean_id}/hqdefault.jpg",
-            channel="YouTube",
+            channel=channel,
             is_live=False,
             is_completed_live=True,
             formats=[
