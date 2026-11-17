@@ -56,6 +56,16 @@ You must strictly obey these non-negotiable constraints across every debugging s
   * **API Routes:** `backend/routes/video.py`, `backend/routes/clip.py`, `backend/routes/download.py`.
   * **Timeline & Player:** `frontend/js/timeline.js`, `frontend/js/player.js`.
 
+> [!IMPORTANT]
+> **Datacenter Anti-Bot (`Failed to extract any player response`) Diagnosis:**
+> - If an export or metadata extraction fails on a cloud host (Render/AWS) with `ERROR: [youtube] ...: Failed to extract any player response`:
+>   1. **Do NOT confuse frontend player success with backend extraction:** The YouTube IFrame player runs inside the user's browser (residential IP) and will play smoothly even when the cloud backend is blocked.
+>   2. **Root cause:** YouTube strictly blocks anonymous video stream extraction from cloud datacenter ASN ranges.
+>   3. **Resolution paths:**
+>      - Supply YouTube Cookies via `cookies.txt` or `YOUTUBE_COOKIES` environment variable.
+>      - Ensure `live_from_start: True` is enabled in `yt-dlp` options for completed livestreams.
+>      - Surface clear, friendly guidance in the UI informing the user to provide cookies for cloud exports or use local mode (`python run.py`).
+
 ### Step 3: Implement the Fix
 - Make surgical, production-grade code adjustments.
 - Do not ask for user approval for ordinary, reversible local code edits.

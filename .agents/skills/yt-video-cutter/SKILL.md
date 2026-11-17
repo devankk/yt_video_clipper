@@ -54,10 +54,22 @@ This skill is the authoritative architectural and engineering specification for 
 ## 3. Technology Stack & Design System
 
 ### 3.1 Backend Architecture
-* **Framework:** FastAPI 0.115+ (Python 3.14, async/await native).
-* **Extraction Engine:** `yt-dlp` configured with `js_runtimes: {'node': {}}` and Apple client emulation (`visionos,android`).
+* **Framework:** FastAPI 0.115+ (Python 3.14, async/await native, `python-multipart` required).
+* **Extraction Engine:** `yt-dlp` configured with `live_from_start: True` and cookie support (`cookiefile` / `YOUTUBE_COOKIES`).
 * **Processing Engine:** FFmpeg with fast HTTP range seeking (`-ss` before `-i`), smart frame-accurate transcoding (`-c:v libx264 -crf 18 -c:a aac`) and ultra-fast stream copy (`-c copy`).
-* **Background Worker:** `asyncio` task queue with real-time job state management and SSE progress streaming.
+* **Background Worker:** `BackgroundTasks` / `asyncio` task queue with real-time job state management and polling (`GET /api/jobs/{job_id}`).
+
+---
+
+### 3.3 Deployment Environments: Localhost vs Cloud Datacenter (Render / AWS)
+
+| Aspect | Localhost (`python run.py`) | Cloud Datacenter (Render / AWS / GCP) |
+| :--- | :--- | :--- |
+| **IP Classification** | Residential / Home Broadband | Datacenter ASN |
+| **YouTube Bot Detection** | Passes silently with zero authentication | Blocks anonymous stream extraction (`Failed to extract any player response`) |
+| **Player Preview** | YouTube IFrame API (runs in user's browser) | YouTube IFrame API (runs in user's browser, unaffected) |
+| **Export Performance** | **1–2 min clip in ~2.8s** directly from GoogleVideo CDN | Requires **YouTube Cookies** (`cookies.txt` / `YOUTUBE_COOKIES`) or PO Token |
+| **FFmpeg Binary** | Windows system FFmpeg in PATH | Debian/Ubuntu native `ffmpeg` installed via build script |
 * **Packaging:** Python standard `zipfile` with `deflate` compression for batch exports.
 
 ### 3.2 Frontend Architecture & Design System
