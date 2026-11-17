@@ -39,7 +39,7 @@ class YouTubeExtractor:
     def extract_video_id(self, url: str) -> str:
         return extract_video_id(url)
 
-    def _get_ydl_options(self) -> Dict[str, Any]:
+    def _get_ydl_options(self, client: str = 'web_embedded') -> Dict[str, Any]:
         import shutil
         from pathlib import Path
         opts = {
@@ -47,16 +47,29 @@ class YouTubeExtractor:
             'no_warnings': True,
             'skip_download': True,
             'live_from_start': True,
+            'force_ipv4': True,
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
+            },
+            'extractor_args': {
+                'youtube': {
+                    'player_client': [client],
+                    'player_skip': ['webpage']
+                }
             }
         }
         # Detect Deno from pip package or environment PATH
-        deno_bin = shutil.which('deno')
-        if deno_bin:
-            opts['js_runtimes'] = {'deno': {'path': deno_bin}}
-        elif Path("bin/deno").exists():
-            opts['js_runtimes'] = {'deno': {'path': str(Path("bin/deno").resolve())}}
+        try:
+            import deno
+            deno_bin = deno.find_deno_bin()
+            if deno_bin:
+                opts['js_runtimes'] = {'deno': {'path': str(deno_bin)}}
+        except Exception:
+            deno_bin = shutil.which('deno')
+            if deno_bin:
+                opts['js_runtimes'] = {'deno': {'path': deno_bin}}
+            elif Path("bin/deno").exists():
+                opts['js_runtimes'] = {'deno': {'path': str(Path("bin/deno").resolve())}}
         return opts
 
     def get_video_info(self, url: str) -> Tuple[VideoInfoResponse, Dict[str, Any]]:
@@ -73,47 +86,38 @@ class YouTubeExtractor:
             if now - cache_time < METADATA_CACHE_TTL:
                 return self._parse_info(cached_info), cached_info
 
-        # Fetch fresh info with yt-dlp
-        ydl_opts = self._get_ydl_options()
         info = None
         errors = []
+        target_url = f"https://www.youtube.com/watch?v={clean_id}" if clean_id else url
 
-        # 1. Primary extraction with standard URL
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-        except Exception as e:
-            errors.append(str(e))
-
-        # 2. Retry with canonical watch URL if different
-        if not info and clean_id:
+        # 1. Primary extraction with web_embedded (bypasses datacenter webpage blocks)
+        for client in ('web_embedded', 'tv', 'web'):
             try:
-                watch_url = f"https://www.youtube.com/watch?v={clean_id}"
+                ydl_opts = self._get_ydl_options(client=client)
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(watch_url, download=False)
+                    info = ydl.extract_info(target_url, download=False)
+                if info and info.get('formats'):
+                    break
             except Exception as e:
                 errors.append(str(e))
 
-        # 3. Fallback client strategies if datacenter challenge is encountered
-        if not info and clean_id:
-            for client_list in (['tv', 'web_embedded'], ['android_vr'], ['android', 'ios']):
-                try:
-                    fallback_opts = dict(ydl_opts)
-                    fallback_opts['extractor_args'] = {
-                        'youtube': {
-                            'player_client': client_list
-                        }
-                    }
-                    with yt_dlp.YoutubeDL(fallback_opts) as ydl:
-                        target = f"https://www.youtube.com/watch?v={clean_id}"
-                        info = ydl.extract_info(target, download=False)
-                    if info and info.get('formats'):
-                        break
-                except Exception as e:
-                    errors.append(str(e))
+        # 2. Fallback to default without player_skip if needed
+        if not info:
+            try:
+                default_opts = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    'skip_download': True,
+                    'live_from_start': True,
+                    'force_ipv4': True
+                }
+                with yt_dlp.YoutubeDL(default_opts) as ydl:
+                    info = ydl.extract_info(target_url, download=False)
+            except Exception as e:
+                errors.append(str(e))
 
         if not info:
-            raise ValueError(f"Could not retrieve video information: {errors[-1] if errors else 'Unknown extraction error'}")
+            raise ValueError(f"Could not retrieve video information: {errors[0] if errors else 'Extraction failed'}")
 
         # Cache the extracted raw info
         self._cache[clean_id] = (now, info)
