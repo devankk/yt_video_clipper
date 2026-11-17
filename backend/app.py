@@ -35,7 +35,7 @@ async def health_check():
     return {"status": "ok", "app": "YouTube Live Stream Video Cutter"}
 
 @app.get("/api/debug-env")
-async def debug_env(client: str = "ios", skip_webpage: bool = True):
+def debug_env(client: str = "web_embedded", skip_webpage: bool = True, timeout: int = 25):
     import shutil, sys, os
     import yt_dlp
     deno_found = None
@@ -52,7 +52,7 @@ async def debug_env(client: str = "ios", skip_webpage: bool = True):
             'skip_download': True,
             'live_from_start': True,
             'force_ipv4': True,
-            'socket_timeout': 5,
+            'socket_timeout': timeout,
             'extractor_args': {'youtube': {'player_client': [client]}}
         }
         if skip_webpage:
@@ -70,6 +70,7 @@ async def debug_env(client: str = "ios", skip_webpage: bool = True):
     return {
         "client": client,
         "skip_webpage": skip_webpage,
+        "timeout": timeout,
         "shutil_deno": shutil.which("deno"),
         "deno_found": str(deno_found),
         "result": result

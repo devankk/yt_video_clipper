@@ -49,7 +49,7 @@ class YouTubeExtractor:
             'skip_download': True,
             'live_from_start': True,
             'force_ipv4': True,
-            'socket_timeout': 8,
+            'socket_timeout': 25,
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
             },
