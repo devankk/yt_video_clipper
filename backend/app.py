@@ -35,7 +35,7 @@ async def health_check():
     return {"status": "ok", "app": "YouTube Live Stream Video Cutter"}
 
 @app.get("/api/debug-env")
-async def debug_env():
+async def debug_env(client: str = "ios", skip_webpage: bool = True):
     import shutil, sys, os
     import yt_dlp
     deno_found = None
@@ -45,46 +45,34 @@ async def debug_env():
     except Exception as e:
         deno_found = f"deno import error: {e}"
 
-    results = {}
-    clients_to_test = [
-        ('ios', []),
-        ('android', []),
-        ('tv', []),
-        ('mweb', []),
-        ('web_creator', []),
-        ('android_vr', []),
-        ('web_embedded', ['webpage']),
-        ('tv', ['webpage']),
-    ]
+    result = "not tested"
+    try:
+        opts = {
+            'quiet': True,
+            'skip_download': True,
+            'live_from_start': True,
+            'force_ipv4': True,
+            'socket_timeout': 5,
+            'extractor_args': {'youtube': {'player_client': [client]}}
+        }
+        if skip_webpage:
+            opts['extractor_args']['youtube']['player_skip'] = ['webpage']
+        if deno_found and os.path.exists(deno_found):
+            opts['js_runtimes'] = {'deno': {'path': str(deno_found)}}
 
-    for c, skips in clients_to_test:
-        key = f"{c}_{'skip' if skips else 'noskip'}"
-        try:
-            opts = {
-                'quiet': True,
-                'skip_download': True,
-                'live_from_start': True,
-                'force_ipv4': True,
-                'socket_timeout': 5,
-                'extractor_args': {'youtube': {'player_client': [c]}}
-            }
-            if skips:
-                opts['extractor_args']['youtube']['player_skip'] = skips
-            if deno_found and os.path.exists(deno_found):
-                opts['js_runtimes'] = {'deno': {'path': str(deno_found)}}
-
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                inf = ydl.extract_info("https://www.youtube.com/watch?v=IsBp4KlwRsU", download=False)
-                fmts = len(inf.get('formats', []))
-                results[key] = f"SUCCESS: {inf.get('title')[:30]} ({fmts} fmts)"
-        except Exception as e:
-            results[key] = str(e).splitlines()[0]
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            inf = ydl.extract_info("https://www.youtube.com/watch?v=IsBp4KlwRsU", download=False)
+            fmts = len(inf.get('formats', []))
+            result = f"SUCCESS: {inf.get('title')[:30]} ({fmts} fmts)"
+    except Exception as e:
+        result = str(e).splitlines()[0]
 
     return {
-        "python": sys.version,
+        "client": client,
+        "skip_webpage": skip_webpage,
         "shutil_deno": shutil.which("deno"),
         "deno_found": str(deno_found),
-        "results": results
+        "result": result
     }
 
 # Mount frontend static directories
