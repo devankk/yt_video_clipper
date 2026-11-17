@@ -40,6 +40,7 @@ class YouTubeExtractor:
         return extract_video_id(url)
 
     def _get_ydl_options(self) -> Dict[str, Any]:
+        import shutil
         from pathlib import Path
         opts = {
             'quiet': True,
@@ -50,10 +51,12 @@ class YouTubeExtractor:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
             }
         }
-        # Detect local Deno binary if installed
-        deno_local = Path("bin/deno")
-        if deno_local.exists():
-            opts['js_runtimes'] = {'deno': {'path': str(deno_local.resolve())}}
+        # Detect Deno from pip package or environment PATH
+        deno_bin = shutil.which('deno')
+        if deno_bin:
+            opts['js_runtimes'] = {'deno': {'path': deno_bin}}
+        elif Path("bin/deno").exists():
+            opts['js_runtimes'] = {'deno': {'path': str(Path("bin/deno").resolve())}}
         return opts
 
     def get_video_info(self, url: str) -> Tuple[VideoInfoResponse, Dict[str, Any]]:
