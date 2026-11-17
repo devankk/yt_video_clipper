@@ -50,7 +50,7 @@ def test_single_clip_extraction(raw_info):
     output_path = EXPORTS_DIR / "test_automated_clip.mp4"
 
     t0 = time.time()
-    processor.process_clip(raw_info, clip, output_path, mode="smart")
+    processor.process_clip(raw_info, clip, output_path, mode="smart", quality="1080")
     elapsed = time.time() - t0
     print(f"Extracted 10s 1080p60 clip in {elapsed:.2f}s")
 
