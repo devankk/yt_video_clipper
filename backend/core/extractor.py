@@ -40,17 +40,21 @@ class YouTubeExtractor:
         return extract_video_id(url)
 
     def _get_ydl_options(self) -> Dict[str, Any]:
-        return {
+        from pathlib import Path
+        opts = {
             'quiet': True,
             'no_warnings': True,
             'skip_download': True,
             'live_from_start': True,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['visionos', 'web']
-                }
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
             }
         }
+        # Detect local Deno binary if installed
+        deno_local = Path("bin/deno")
+        if deno_local.exists():
+            opts['js_runtimes'] = {'deno': {'path': str(deno_local.resolve())}}
+        return opts
 
     def get_video_info(self, url: str) -> Tuple[VideoInfoResponse, Dict[str, Any]]:
         """
@@ -71,12 +75,14 @@ class YouTubeExtractor:
         info = None
         errors = []
 
+        # 1. Primary extraction with standard URL
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
         except Exception as e:
             errors.append(str(e))
 
+        # 2. Retry with canonical watch URL if different
         if not info and clean_id:
             try:
                 watch_url = f"https://www.youtube.com/watch?v={clean_id}"
@@ -85,8 +91,26 @@ class YouTubeExtractor:
             except Exception as e:
                 errors.append(str(e))
 
+        # 3. Fallback client strategies if datacenter challenge is encountered
+        if not info and clean_id:
+            for client_list in (['tv', 'web_embedded'], ['android_vr'], ['android', 'ios']):
+                try:
+                    fallback_opts = dict(ydl_opts)
+                    fallback_opts['extractor_args'] = {
+                        'youtube': {
+                            'player_client': client_list
+                        }
+                    }
+                    with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                        target = f"https://www.youtube.com/watch?v={clean_id}"
+                        info = ydl.extract_info(target, download=False)
+                    if info and info.get('formats'):
+                        break
+                except Exception as e:
+                    errors.append(str(e))
+
         if not info:
-            raise ValueError(f"Could not retrieve video information: {'; '.join(errors)}")
+            raise ValueError(f"Could not retrieve video information: {errors[-1] if errors else 'Unknown extraction error'}")
 
         # Cache the extracted raw info
         self._cache[clean_id] = (now, info)

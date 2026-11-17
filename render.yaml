@@ -2,8 +2,11 @@ services:
   - type: web
     name: yt-video-clipper
     runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn backend.app:app --host 0.0.0.0 --port $PORT
+    buildCommand: |
+      curl -fsSL https://deno.land/install.sh | DENO_INSTALL="$PWD" sh
+      export PATH="$PWD/bin:$PATH"
+      pip install -r requirements.txt
+    startCommand: sh -c "export PATH=$PWD/bin:$PATH && uvicorn backend.app:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
