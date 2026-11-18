@@ -39,10 +39,12 @@
       <button id="btn-load-video" class="btn btn-primary">Load Video</button>
     </div>
 
-    <!-- Local Media Ingestion Option -->
+    <!-- Local Media & Project Utilities -->
     <div style="display: flex; align-items: center; gap: 8px;">
-      <span id="engine-badge" class="brand-badge" style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); font-size: 0.75rem; cursor: pointer;" title="Active Processing Engine">⚡ Local Engine</span>
+      <span id="engine-badge" class="brand-badge" style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); font-size: 0.75rem; cursor: pointer;" title="Click for engine diagnostics">⚡ Local Engine</span>
       <button id="btn-settings-cookies" class="btn btn-secondary" title="Configure YouTube Cookies" style="padding: 6px 10px; font-size: 0.8rem;">⚙️ Cookies</button>
+      <button id="btn-shortcuts" class="btn btn-secondary" title="Keyboard Shortcuts (?)" style="padding: 6px 10px; font-size: 0.8rem;">⌨️ Keys</button>
+      <button id="btn-new-project" class="btn btn-secondary" title="Reset & Start New Project" style="padding: 6px 10px; font-size: 0.8rem;">🔄 New</button>
       <input type="file" id="local-file-input" accept="video/mp4,video/mkv,video/webm" style="display: none;">
       <button id="btn-upload-local" class="btn btn-secondary">Upload File</button>
     </div>
@@ -193,13 +195,15 @@
 
         <!-- Professional NLE Action Toolbar -->
         <div class="timeline-toolbar">
-          <button id="btn-split-clip" class="btn btn-secondary btn-sm" title="Split active clip at playhead (VN style)">
+          <button id="btn-undo" class="btn btn-secondary btn-sm" title="Undo (Ctrl+Z)" disabled>↩ Undo</button>
+          <button id="btn-redo" class="btn btn-secondary btn-sm" title="Redo (Ctrl+Y)" disabled>↪ Redo</button>
+          <button id="btn-split-clip" class="btn btn-secondary btn-sm" title="Split active clip at playhead (S)">
             ✂️ Split
           </button>
-          <button id="btn-toggle-snap" class="btn btn-secondary btn-sm btn-snap active" title="Toggle magnetic snapping">
+          <button id="btn-toggle-snap" class="btn btn-secondary btn-sm btn-snap active" title="Toggle magnetic snapping (M)">
             🧲 Snap: ON
           </button>
-          <button id="btn-fit-screen" class="btn btn-secondary btn-sm" title="Fit entire stream timeline to screen width">
+          <button id="btn-fit-screen" class="btn btn-secondary btn-sm" title="Fit entire stream timeline to screen width (F)">
             ⤢ Fit
           </button>
           <div class="timeline-zoom-group">
@@ -207,7 +211,7 @@
             <button id="btn-zoom-reset" class="btn btn-secondary btn-sm" title="Reset zoom">1x</button>
             <button id="btn-zoom-in" class="btn btn-secondary btn-sm" title="Zoom in">+</button>
           </div>
-          <button id="btn-add-clip" class="btn btn-primary btn-sm" title="Add new clip selection">+ Add Clip</button>
+          <button id="btn-add-clip" class="btn btn-primary btn-sm" title="Add new clip selection (+)">+ Add Clip</button>
         </div>
       </div>
 
@@ -306,11 +310,65 @@
     </div>
   </div>
 
+  <!-- Keyboard Shortcuts Cheatsheet Modal -->
+  <div id="shortcuts-modal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 640px; display: flex; flex-direction: column; gap: 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="font-size: 1.15rem; font-weight: 700; color: #fff;">⌨️ Professional NLE Keyboard Shortcuts</h3>
+        <button id="btn-close-shortcuts-modal" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.25rem;">✕</button>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 0.85rem;">
+        <div>
+          <h4 style="color: var(--accent-orange); font-size: 0.8rem; text-transform: uppercase; margin-bottom: 8px;">Playback & Navigation</h4>
+          <div class="shortcut-row"><kbd>Space</kbd> <span>Play / Pause</span></div>
+          <div class="shortcut-row"><kbd>J</kbd> <span>Reverse 5s</span></div>
+          <div class="shortcut-row"><kbd>K</kbd> <span>Pause Playback</span></div>
+          <div class="shortcut-row"><kbd>L</kbd> <span>Forward 5s</span></div>
+          <div class="shortcut-row"><kbd>←</kbd> / <kbd>→</kbd> <span>Step 1s</span></div>
+          <div class="shortcut-row"><kbd>Shift + ←/→</kbd> <span>Step 5s</span></div>
+        </div>
+        <div>
+          <h4 style="color: var(--accent-orange); font-size: 0.8rem; text-transform: uppercase; margin-bottom: 8px;">Clip Editing & Marking</h4>
+          <div class="shortcut-row"><kbd>I</kbd> <span>Mark In (Set Start)</span></div>
+          <div class="shortcut-row"><kbd>O</kbd> <span>Mark Out (Set End)</span></div>
+          <div class="shortcut-row"><kbd>S</kbd> <span>Split at Playhead</span></div>
+          <div class="shortcut-row"><kbd>Ctrl + D</kbd> <span>Duplicate Clip</span></div>
+          <div class="shortcut-row"><kbd>Del</kbd> / <kbd>Backspace</kbd> <span>Delete Clip</span></div>
+          <div class="shortcut-row"><kbd>Ctrl + Z</kbd> / <kbd>Ctrl + Y</kbd> <span>Undo / Redo</span></div>
+          <div class="shortcut-row"><kbd>M</kbd> <span>Toggle Snap</span></div>
+          <div class="shortcut-row"><kbd>F</kbd> <span>Fit to Screen</span></div>
+          <div class="shortcut-row"><kbd>?</kbd> <span>Shortcuts Help</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Engine Diagnostics Modal -->
+  <div id="engine-modal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 480px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="font-size: 1.1rem; font-weight: 700; color: #fff;">⚡ Processing Engine Diagnostics</h3>
+        <button id="btn-close-engine-modal" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.25rem;">✕</button>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4; margin: 0;">
+        <strong>Local Desktop Engine</strong> is running on <code style="color: #22c55e;">http://localhost:8000</code>.
+      </p>
+      <ul style="font-size: 0.82rem; color: var(--text-secondary); line-height: 1.6; padding-left: 20px; margin: 0;">
+        <li>Zero rate limits or cloud IP bot detection</li>
+        <li>Direct multi-threaded HTTP Range seeking</li>
+        <li>Instant zero-RAM FFmpeg transcoding & packaging</li>
+      </ul>
+      <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+        <button class="btn btn-secondary" onclick="document.getElementById('engine-modal').classList.remove('active')">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Application Scripts -->
-  <script src="/js/api.js?v=2.2.0"></script>
-  <script src="/js/player.js?v=2.2.0"></script>
-  <script src="/js/timeline.js?v=2.2.0"></script>
-  <script src="/js/clips.js?v=2.2.0"></script>
-  <script src="/js/app.js?v=2.2.0"></script>
+  <script src="/js/api.js?v=2.3.0"></script>
+  <script src="/js/player.js?v=2.3.0"></script>
+  <script src="/js/timeline.js?v=2.3.0"></script>
+  <script src="/js/clips.js?v=2.3.0"></script>
+  <script src="/js/app.js?v=2.3.0"></script>
 </body>
 </html>

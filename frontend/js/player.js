@@ -9,6 +9,7 @@ class VideoPlayerController {
     this.placeholder = document.getElementById('player-placeholder');
     this.isYouTube = true;
     this.isReady = false;
+    this.isPlaying = false;
     this.currentTime = 0;
     this.duration = 0;
     this.previewActive = false;
@@ -123,7 +124,12 @@ class VideoPlayerController {
               this._broadcastReady();
             },
             onStateChange: (event) => {
-              // YT.PlayerState.ENDED = 0
+              // YT.PlayerState: PLAYING=1, PAUSED=2, ENDED=0, BUFFERING=3
+              if (event.data === 1) {
+                this.isPlaying = true;
+              } else if (event.data === 2 || event.data === 0) {
+                this.isPlaying = false;
+              }
               if (event.data === 0 && this.previewActive) {
                 this.seekTo(this.previewStart);
               }
@@ -175,6 +181,7 @@ class VideoPlayerController {
   }
 
   play() {
+    this.isPlaying = true;
     if (this.isYouTube && this.ytPlayer && typeof this.ytPlayer.playVideo === 'function') {
       try {
         this.ytPlayer.playVideo();
@@ -187,6 +194,7 @@ class VideoPlayerController {
   }
 
   pause() {
+    this.isPlaying = false;
     if (this.isYouTube && this.ytPlayer && typeof this.ytPlayer.pauseVideo === 'function') {
       try {
         this.ytPlayer.pauseVideo();
@@ -197,6 +205,15 @@ class VideoPlayerController {
       this.html5Player.pause();
     }
     this.previewActive = false;
+  }
+
+  togglePlay() {
+    if (this.isPlaying) {
+      this.pause();
+    } else {
+      this.play();
+    }
+    return this.isPlaying;
   }
 
   getCurrentTime() {

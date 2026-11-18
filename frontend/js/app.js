@@ -1,5 +1,6 @@
 /**
  * Application Orchestrator & State Coordination
+ * Professional NLE Workflow, Keyboard Engine & LocalStorage Persistence
  */
 document.addEventListener('DOMContentLoaded', () => {
   // DOM Elements
@@ -8,6 +9,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnPaste = document.getElementById('btn-paste-url');
   const btnUploadLocal = document.getElementById('btn-upload-local');
   const fileInput = document.getElementById('local-file-input');
+  const btnNewProject = document.getElementById('btn-new-project');
+  const btnShortcuts = document.getElementById('btn-shortcuts');
+  const shortcutsModal = document.getElementById('shortcuts-modal');
+  const btnCloseShortcutsModal = document.getElementById('btn-close-shortcuts-modal');
+  const engineBadge = document.getElementById('engine-badge');
+  const engineModal = document.getElementById('engine-modal');
+  const btnCloseEngineModal = document.getElementById('btn-close-engine-modal');
 
   // Video Metadata Elements
   const videoTitleEl = document.getElementById('video-title');
@@ -31,7 +39,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnExportBatch = document.getElementById('btn-export-batch');
   const btnAddClip = document.getElementById('btn-add-clip');
 
-  // Timeline Zoom Controls
+  // Timeline Action Controls
+  const btnUndo = document.getElementById('btn-undo');
+  const btnRedo = document.getElementById('btn-redo');
+  const btnSplitClip = document.getElementById('btn-split-clip');
+  const btnToggleSnap = document.getElementById('btn-toggle-snap');
+  const btnFitScreen = document.getElementById('btn-fit-screen');
   const btnZoomIn = document.getElementById('btn-zoom-in');
   const btnZoomOut = document.getElementById('btn-zoom-out');
   const btnZoomReset = document.getElementById('btn-zoom-reset');
@@ -49,9 +62,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const modalActions = document.getElementById('modal-actions');
   const btnCloseModal = document.getElementById('btn-close-modal');
 
+  // Persistent Project Key
+  const STORAGE_KEY = 'streamcutter_project_state_v1';
   let currentVideoData = null;
 
-  // Modern Non-Blocking Toast Notification System
+  // Modern Non-Blocking Toast Notification System (Positioned at bottom-right)
   function showToast(message, type = 'info') {
     let container = document.getElementById('toast-container');
     if (!container) {
@@ -75,48 +90,61 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
       toast.classList.remove('show');
       setTimeout(() => toast.remove(), 300);
-    }, 3500);
+    }, 3200);
   }
   window.showToast = showToast;
 
-  // Initialize Player
+  // Initialize Unified Player Controller
   const player = new VideoPlayerController();
 
-  // Initialize Timeline
+  // Initialize Timeline Editor
   const timeline = new TimelineEditor('timeline-viewport', {
     onClipChange: (clip, action) => {
       if (action === 'select' || action === 'update') {
         clipManager.setActiveClip(clip.id);
         syncInputsFromClip(clip);
+        saveProjectState();
+      } else if (action === 'commit') {
+        clipManager.pushHistory();
+        saveProjectState();
       }
     },
     onSeek: (targetTime) => {
       player.seekTo(targetTime);
+    },
+    onClipAction: (action, clip, cursorTime) => {
+      handleTimelineClipAction(action, clip, cursorTime);
     }
   });
 
-  // Initialize Clip Manager
+  // Initialize Clip Manager with Undo/Redo
   const clipManager = new ClipManager({
     onActiveChange: (activeClip) => {
       if (activeClip) {
         syncInputsFromClip(activeClip);
         timeline.setClips(clipManager.clips, activeClip.id);
+        saveProjectState();
       }
     },
     onListChange: (clips, activeId) => {
       timeline.setClips(clips, activeId);
+      saveProjectState();
     },
     onPreviewClip: (clip) => {
       player.previewRange(clip.start_time, clip.end_time, clip.name);
     },
     onExportSingle: (clip) => {
       triggerSingleExport(clip);
+    },
+    onHistoryChange: (canUndo, canRedo) => {
+      if (btnUndo) btnUndo.disabled = !canUndo;
+      if (btnRedo) btnRedo.disabled = !canRedo;
     }
   });
 
-  // Sync playhead during playback
+  // Sync playhead and auto-follow during playback
   player.onTimeUpdate((currentTime) => {
-    timeline.setPlayheadTime(currentTime);
+    timeline.setPlayheadTime(currentTime, player.isPlaying);
   });
 
   // Dynamic duration synchronization from player
@@ -128,6 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (currentVideoData) {
         currentVideoData.duration = dur;
         currentVideoData.duration_formatted = formatSeconds(dur);
+        saveProjectState();
       }
     }
   });
@@ -157,6 +186,35 @@ document.addEventListener('DOMContentLoaded', () => {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
 
+  // Handle Context Menu Actions on Timeline
+  function handleTimelineClipAction(action, clip, cursorTime) {
+    if (action === 'split') {
+      const splitTime = cursorTime || Math.round(player.getCurrentTime());
+      if (splitTime <= clip.start_time + 0.5 || splitTime >= clip.end_time - 0.5) {
+        showToast("Cannot split at the edge of the clip", "warning");
+        return;
+      }
+      clipManager.pushHistory();
+      const oldEnd = clip.end_time;
+      clip.end_time = splitTime;
+      const newClip = clipManager.addClip(splitTime, oldEnd, `${clip.name} (Part 2)`, false);
+      clipManager.render();
+      timeline.setClips(clipManager.clips, newClip.id);
+      syncInputsFromClip(newClip);
+      showToast(`✂️ Split clip at ${formatSeconds(splitTime)}`, "success");
+    } else if (action === 'duplicate') {
+      const copy = clipManager.duplicateClip(clip.id);
+      showToast(`📋 Duplicated ${copy.name}`, "success");
+    } else if (action === 'preview') {
+      player.previewRange(clip.start_time, clip.end_time, clip.name);
+    } else if (action === 'export') {
+      triggerSingleExport(clip);
+    } else if (action === 'delete') {
+      clipManager.removeClip(clip.id);
+      showToast(`Deleted ${clip.name}`, "info");
+    }
+  }
+
   // URL Loading Action
   async function loadVideoByUrl() {
     const url = urlInput.value.trim();
@@ -173,7 +231,6 @@ document.addEventListener('DOMContentLoaded', () => {
       streamTypeBadge.textContent = "YouTube Stream";
       player.loadYouTube(videoId);
 
-      // Set an initial duration so timeline is immediately interactive
       if (!timeline.totalDuration || timeline.totalDuration <= 0) {
         timeline.setDuration(3600);
         clipManager.setTotalDuration(3600);
@@ -187,50 +244,30 @@ document.addEventListener('DOMContentLoaded', () => {
       const info = await API.getVideoInfo(url);
       currentVideoData = info;
 
-      // Update UI Header
       videoTitleEl.textContent = info.title;
       durationBadge.textContent = info.duration_formatted;
       resolutionBadge.textContent = info.formats[0]?.resolution || "1080p";
       streamTypeBadge.textContent = info.is_completed_live ? "Completed Livestream" : "Standard Video";
 
-      // Populate Quality Dropdown with all available YouTube stream resolutions
       if (exportQualitySelect && info.formats && info.formats.length > 0) {
         const topFmt = info.formats[0];
         const topLabel = topFmt.fps ? `${topFmt.resolution} (${topFmt.fps}fps)` : topFmt.resolution;
         exportQualitySelect.innerHTML = `<option value="highest" selected>Highest Available (${topLabel})</option>`;
-        const addedHeights = new Set();
-        info.formats.forEach(f => {
-          let height = null;
-          if (f.resolution) {
-            const parts = f.resolution.split('x');
-            const target = parts.length === 2 ? parts[1] : parts[0];
-            const digits = target.match(/\d+/);
-            if (digits) height = digits[0];
-          }
-          if (height && !addedHeights.has(height)) {
-            addedHeights.add(height);
-            const opt = document.createElement('option');
-            opt.value = height;
-            opt.textContent = `${height}p${f.fps ? ` (${f.fps}fps)` : ''}`;
-            exportQualitySelect.appendChild(opt);
-          }
+        info.formats.forEach((f) => {
+          const opt = document.createElement('option');
+          opt.value = f.height ? String(f.height) : f.format_id;
+          opt.textContent = `${f.resolution} (${f.fps ? f.fps + 'fps' : 'Auto'})`;
+          exportQualitySelect.appendChild(opt);
         });
       }
 
-      // Ensure YouTube Player is loaded with the official video_id
-      if (info.video_id) {
-        player.loadYouTube(info.video_id);
-      }
-
-      // Initialize Timeline & Clips
-      if (info.duration > 0) {
-        timeline.setDuration(info.duration);
-        clipManager.setTotalDuration(info.duration);
-      }
+      timeline.setDuration(info.duration);
+      clipManager.setTotalDuration(info.duration);
 
       const active = clipManager.getActiveClip();
       if (active) syncInputsFromClip(active);
 
+      saveProjectState();
       showToast("Video loaded successfully!", "success");
 
     } catch (err) {
@@ -245,6 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
         videoTitleEl.textContent = currentVideoData.title;
         durationBadge.textContent = currentVideoData.duration_formatted;
         showToast("Connected to YouTube stream player.", "success");
+        saveProjectState();
       } else {
         showToast(err.message || "Could not load video. Check the link and try again.", "error");
       }
@@ -262,13 +300,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Paste from clipboard
+  // Paste from clipboard (Populate & Focus without auto-submitting)
   btnPaste.addEventListener('click', async () => {
     try {
       const text = await navigator.clipboard.readText();
       if (text) {
-        urlInput.value = text;
-        loadVideoByUrl();
+        urlInput.value = text.trim();
+        urlInput.focus();
+        showToast("Link pasted. Click 'Load Video' to inspect stream.", "info");
       }
     } catch (e) {
       urlInput.focus();
@@ -302,22 +341,40 @@ document.addEventListener('DOMContentLoaded', () => {
       const active = clipManager.getActiveClip();
       if (active) syncInputsFromClip(active);
 
+      saveProjectState();
       showToast("Local file loaded successfully!", "success");
 
     } catch (err) {
       showToast(err.message || "Failed to load local file.", "error");
     } finally {
       btnUploadLocal.disabled = false;
-      btnUploadLocal.textContent = "Upload Local File";
+      btnUploadLocal.textContent = "Upload File";
     }
   });
+
+  // Undo / Redo Actions
+  if (btnUndo) {
+    btnUndo.addEventListener('click', () => {
+      if (clipManager.undo()) {
+        showToast("↩ Undo", "info");
+      }
+    });
+  }
+
+  if (btnRedo) {
+    btnRedo.addEventListener('click', () => {
+      if (clipManager.redo()) {
+        showToast("↪ Redo", "info");
+      }
+    });
+  }
 
   // Timeline Zoom Controls
   btnZoomIn.addEventListener('click', () => timeline.setZoom(timeline.zoom * 1.5));
   btnZoomOut.addEventListener('click', () => timeline.setZoom(timeline.zoom / 1.5));
   btnZoomReset.addEventListener('click', () => timeline.setZoom(1.0));
 
-  // "+ Add Clip" (Default 2 minutes / 120 seconds per Option 2)
+  // "+ Add Clip"
   btnAddClip.addEventListener('click', () => {
     const current = player.getCurrentTime();
     const clip = clipManager.addClip(current, Math.min(timeline.totalDuration, current + 120));
@@ -330,12 +387,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const curr = Math.round(player.getCurrentTime() * 10) / 10;
     const active = clipManager.getActiveClip();
     if (active) {
+      clipManager.pushHistory();
       if (curr >= active.end_time) {
         active.end_time = Math.min(timeline.totalDuration, curr + 10);
       }
       active.start_time = curr;
       clipManager.render();
       syncInputsFromClip(active);
+      saveProjectState();
     }
   });
 
@@ -347,13 +406,15 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast("End time cannot be earlier than start time.", "warning");
         return;
       }
+      clipManager.pushHistory();
       active.end_time = curr;
       clipManager.render();
       syncInputsFromClip(active);
+      saveProjectState();
     }
   });
 
-  // "Preview Clip" with active HUD reflection
+  // "Preview Clip"
   btnPreviewClip.addEventListener('click', () => {
     const active = clipManager.getActiveClip();
     if (active) {
@@ -361,11 +422,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Professional NLE Timeline Toolbar Controls (VN Style)
-  const btnSplitClip = document.getElementById('btn-split-clip');
-  const btnToggleSnap = document.getElementById('btn-toggle-snap');
-  const btnFitScreen = document.getElementById('btn-fit-screen');
-
+  // Professional NLE Timeline Toolbar Controls
   if (btnSplitClip) {
     btnSplitClip.addEventListener('click', () => {
       const splitResult = timeline.splitAtPlayhead();
@@ -373,12 +430,13 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast("Position playhead inside a clip to split.", "warning");
         return;
       }
+      clipManager.pushHistory();
       const orig = splitResult.originalClip;
       const oldEnd = orig.end_time;
       const splitSec = Math.round(splitResult.splitTime);
 
       orig.end_time = splitSec;
-      const newClip = clipManager.addClip(splitSec, oldEnd, `${orig.name} (Part 2)`);
+      const newClip = clipManager.addClip(splitSec, oldEnd, `${orig.name} (Part 2)`, false);
       clipManager.render();
       timeline.setClips(clipManager.clips, newClip.id);
       syncInputsFromClip(newClip);
@@ -412,7 +470,6 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('scroll', () => {
     if (!playerPanel || !playerStage) return;
     const rect = playerPanel.getBoundingClientRect();
-    // When the top section has scrolled well past the viewport top
     if (rect.bottom < 80 && !isDocked) {
       isDocked = true;
       playerStage.classList.add('is-floating-docked');
@@ -444,6 +501,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btnPreviewClip.disabled = false;
       clipManager.updateActiveTimestamps(startSec, endSec);
       updateDurationBadge(endSec - startSec);
+      saveProjectState();
     } else {
       timeInputs.forEach(el => el.classList.add('is-invalid'));
       selectedDurationEl.classList.add('is-invalid-text');
@@ -456,7 +514,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Keyboard Steppers & Auto-Padding
   timeInputs.forEach(el => {
     el.addEventListener('input', handleNumericInputs);
-
     el.addEventListener('keydown', (e) => {
       let val = parseInt(el.value, 10) || 0;
       const isHour = el.id.includes('-h');
@@ -619,42 +676,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Modal helpers
   function openModal(title, initialStatus) {
-    const eModal = document.getElementById('export-modal');
-    const mTitle = document.getElementById('modal-title');
-    const mStatus = document.getElementById('modal-status');
-    const pBar = document.getElementById('progress-bar-fill');
-    const pPct = document.getElementById('progress-pct');
-    const mActions = document.getElementById('modal-actions');
-
-    if (mTitle) mTitle.textContent = title;
-    if (mStatus) mStatus.textContent = initialStatus;
-    if (pBar) pBar.style.width = '0%';
-    if (pPct) pPct.textContent = '0%';
-    if (mActions) mActions.innerHTML = '';
-    if (eModal) eModal.classList.add('active');
+    if (modalTitle) modalTitle.textContent = title;
+    if (modalStatus) modalStatus.textContent = initialStatus;
+    if (progressBar) progressBar.style.width = '0%';
+    if (progressPct) progressPct.textContent = '0%';
+    if (modalActions) modalActions.innerHTML = '';
+    if (exportModal) exportModal.classList.add('active');
   }
 
   function updateModalProgress(pct, status) {
-    const pBar = document.getElementById('progress-bar-fill');
-    const pPct = document.getElementById('progress-pct');
-    const mStatus = document.getElementById('modal-status');
-    if (pBar) pBar.style.width = `${pct}%`;
-    if (pPct) pPct.textContent = `${pct}%`;
-    if (mStatus) mStatus.textContent = status;
+    if (progressBar) progressBar.style.width = `${pct}%`;
+    if (progressPct) progressPct.textContent = `${pct}%`;
+    if (modalStatus) modalStatus.textContent = status;
   }
 
   function showDownloadLink(downloadUrl, filename) {
-    const mStatus = document.getElementById('modal-status');
-    const pBar = document.getElementById('progress-bar-fill');
-    const pPct = document.getElementById('progress-pct');
-    const mActions = document.getElementById('modal-actions');
+    if (modalStatus) modalStatus.textContent = "Export completed successfully!";
+    if (progressBar) progressBar.style.width = '100%';
+    if (progressPct) progressPct.textContent = '100%';
 
-    if (mStatus) mStatus.textContent = "Export completed successfully!";
-    if (pBar) pBar.style.width = '100%';
-    if (pPct) pPct.textContent = '100%';
-
-    if (mActions) {
-      mActions.innerHTML = `
+    if (modalActions) {
+      modalActions.innerHTML = `
         <a href="${downloadUrl}" download="${filename}" class="btn btn-primary" style="text-decoration: none; font-size: 0.95rem; padding: 0.65rem 1.25rem;">
           ⬇ Download ${filename}
         </a>
@@ -664,7 +706,6 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
     }
 
-    // Trigger immediate browser download
     try {
       const autoLink = document.createElement('a');
       autoLink.href = downloadUrl;
@@ -678,10 +719,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function showModalError(errMsg) {
-    const mStatus = document.getElementById('modal-status');
-    const mActions = document.getElementById('modal-actions');
-    if (mStatus) {
-      mStatus.innerHTML = `<span style="color: var(--status-red);">${errMsg}</span>`;
+    if (modalStatus) {
+      modalStatus.innerHTML = `<span style="color: var(--status-red);">${errMsg}</span>`;
     }
     let actions = `<button class="btn btn-secondary" onclick="document.getElementById('export-modal').classList.remove('active')">Close</button>`;
     if (errMsg.includes('datacenter') || errMsg.includes('bot') || errMsg.includes('player response') || errMsg.includes('cookies') || errMsg.includes('Sign in')) {
@@ -692,27 +731,288 @@ document.addEventListener('DOMContentLoaded', () => {
         ${actions}
       `;
     }
-    if (mActions) {
-      mActions.innerHTML = actions;
+    if (modalActions) {
+      modalActions.innerHTML = actions;
     }
   }
 
+  // Project Persistence Engine (LocalStorage)
+  function saveProjectState() {
+    try {
+      const state = {
+        url: urlInput.value.trim(),
+        videoData: currentVideoData,
+        clips: clipManager.clips,
+        activeClipId: clipManager.activeClipId,
+        exportQuality: exportQualitySelect ? exportQualitySelect.value : 'highest',
+        exportMode: exportModeSelect ? exportModeSelect.value : 'smart',
+        timestamp: Date.now()
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) {
+      console.warn("Project save error", e);
+    }
+  }
+
+  function restoreProjectState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return false;
+      const state = JSON.parse(raw);
+      if (!state || (!state.url && (!state.clips || state.clips.length === 0))) return false;
+
+      if (state.url) {
+        urlInput.value = state.url;
+      }
+
+      if (state.videoData) {
+        currentVideoData = state.videoData;
+        videoTitleEl.textContent = state.videoData.title || "Restored Stream";
+        durationBadge.textContent = state.videoData.duration_formatted || "00:00:00";
+        if (resolutionBadge) resolutionBadge.textContent = state.videoData.formats?.[0]?.resolution || "1080p";
+        if (streamTypeBadge) streamTypeBadge.textContent = state.videoData.is_completed_live ? "Completed Livestream" : "Standard Video";
+
+        if (state.videoData.duration) {
+          timeline.setDuration(state.videoData.duration);
+          clipManager.totalDuration = state.videoData.duration;
+        }
+      }
+
+      if (state.url) {
+        const videoId = extractYouTubeVideoId(state.url);
+        if (videoId) {
+          player.loadYouTube(videoId);
+        }
+      }
+
+      if (Array.isArray(state.clips) && state.clips.length > 0) {
+        clipManager.restoreState(state.clips, state.activeClipId);
+        timeline.setClips(clipManager.clips, clipManager.activeClipId);
+        const active = clipManager.getActiveClip();
+        if (active) syncInputsFromClip(active);
+      }
+
+      if (state.exportQuality && exportQualitySelect) exportQualitySelect.value = state.exportQuality;
+      if (state.exportMode && exportModeSelect) exportModeSelect.value = state.exportMode;
+
+      showToast("Restored your previous project session", "info");
+      return true;
+    } catch (e) {
+      console.warn("Storage restore error", e);
+      return false;
+    }
+  }
+
+  // Reset / New Project Action
+  if (btnNewProject) {
+    btnNewProject.addEventListener('click', () => {
+      if (clipManager.clips.length > 1 || (clipManager.clips.length === 1 && currentVideoData)) {
+        if (!confirm("Start a new project? This will reset all current clips and loaded stream.")) {
+          return;
+        }
+      }
+      localStorage.removeItem(STORAGE_KEY);
+      urlInput.value = '';
+      currentVideoData = null;
+      videoTitleEl.textContent = "No Video Loaded";
+      durationBadge.textContent = "00:00:00";
+      resolutionBadge.textContent = "1080p60";
+      streamTypeBadge.textContent = "Awaiting Input";
+
+      clipManager.clips = [];
+      clipManager.history = [];
+      clipManager.redoStack = [];
+      clipManager.addClip(0, 120, "Clip 1", false);
+      timeline.setClips(clipManager.clips, clipManager.activeClipId);
+      const active = clipManager.getActiveClip();
+      if (active) syncInputsFromClip(active);
+
+      showToast("New project ready. Enter a video URL to begin.", "info");
+    });
+  }
+
+  // Unsaved Work Guard
+  window.addEventListener('beforeunload', (e) => {
+    if (currentVideoData && clipManager.clips.length > 0) {
+      saveProjectState();
+    }
+  });
+
+  // Global NLE Keyboard Shortcuts Coordinator
+  window.addEventListener('keydown', (e) => {
+    // Ignore global shortcuts when user is actively typing in inputs
+    if (e.target.matches('input, textarea, select')) {
+      if (e.key === 'Escape') {
+        e.target.blur();
+      }
+      return;
+    }
+
+    // Escape closes all open modals
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+      return;
+    }
+
+    // Spacebar: Toggle Play / Pause
+    if (e.code === 'Space') {
+      e.preventDefault();
+      const playing = player.togglePlay();
+      showToast(playing ? "▶ Play" : "⏸ Pause", "info");
+      return;
+    }
+
+    // I: Mark In (Set Start)
+    if (e.key === 'i' || e.key === 'I') {
+      e.preventDefault();
+      btnSetStart.click();
+      showToast("Mark In: Set Start", "info");
+      return;
+    }
+
+    // O: Mark Out (Set End)
+    if (e.key === 'o' || e.key === 'O') {
+      e.preventDefault();
+      btnSetEnd.click();
+      showToast("Mark Out: Set End", "info");
+      return;
+    }
+
+    // J: Reverse Shuttle 5s
+    if (e.key === 'j' || e.key === 'J') {
+      e.preventDefault();
+      player.seekTo(player.getCurrentTime() - 5);
+      return;
+    }
+
+    // K: Pause Playback
+    if (e.key === 'k' || e.key === 'K') {
+      e.preventDefault();
+      player.pause();
+      return;
+    }
+
+    // L: Forward Shuttle 5s
+    if (e.key === 'l' || e.key === 'L') {
+      e.preventDefault();
+      player.seekTo(player.getCurrentTime() + 5);
+      return;
+    }
+
+    // Stepping: Left / Right arrows
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const step = e.shiftKey ? 5 : 1;
+      player.seekTo(player.getCurrentTime() - step);
+      return;
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const step = e.shiftKey ? 5 : 1;
+      player.seekTo(player.getCurrentTime() + step);
+      return;
+    }
+
+    // Delete / Backspace: Delete active clip
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      const active = clipManager.getActiveClip();
+      if (active) {
+        clipManager.removeClip(active.id);
+        showToast(`Deleted ${active.name}`, "info");
+      }
+      return;
+    }
+
+    // Duplicate clip (Ctrl+D / Cmd+D)
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+      e.preventDefault();
+      const active = clipManager.getActiveClip();
+      if (active) {
+        const copy = clipManager.duplicateClip(active.id);
+        showToast(`📋 Duplicated ${copy.name}`, "success");
+      }
+      return;
+    }
+
+    // Split at Playhead (S)
+    if (e.key === 's' || e.key === 'S') {
+      e.preventDefault();
+      if (btnSplitClip) btnSplitClip.click();
+      return;
+    }
+
+    // Toggle Magnetic Snap (M)
+    if (e.key === 'm' || e.key === 'M') {
+      e.preventDefault();
+      if (btnToggleSnap) btnToggleSnap.click();
+      return;
+    }
+
+    // Fit to Screen (F)
+    if (e.key === 'f' || e.key === 'F') {
+      e.preventDefault();
+      if (btnFitScreen) btnFitScreen.click();
+      return;
+    }
+
+    // Undo (Ctrl+Z)
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault();
+      if (clipManager.undo()) {
+        showToast("↩ Undo", "info");
+      }
+      return;
+    }
+
+    // Redo (Ctrl+Y or Ctrl+Shift+Z)
+    if ((e.ctrlKey || e.metaKey) && ((e.key === 'y' || e.key === 'Y') || (e.shiftKey && (e.key === 'z' || e.key === 'Z')))) {
+      e.preventDefault();
+      if (clipManager.redo()) {
+        showToast("↪ Redo", "info");
+      }
+      return;
+    }
+
+    // Shortcuts Modal (? or Shift+/)
+    if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+      e.preventDefault();
+      if (shortcutsModal) shortcutsModal.classList.toggle('active');
+      return;
+    }
+  });
+
+  // Shortcuts Modal Wiring
+  if (btnShortcuts && shortcutsModal) {
+    btnShortcuts.addEventListener('click', () => shortcutsModal.classList.add('active'));
+  }
+  if (btnCloseShortcutsModal && shortcutsModal) {
+    btnCloseShortcutsModal.addEventListener('click', () => shortcutsModal.classList.remove('active'));
+  }
+
+  // Engine Diagnostics Modal Wiring
+  if (engineBadge && engineModal) {
+    engineBadge.addEventListener('click', () => engineModal.classList.add('active'));
+  }
+  if (btnCloseEngineModal && engineModal) {
+    btnCloseEngineModal.addEventListener('click', () => engineModal.classList.remove('active'));
+  }
+
   // Engine Status Badge Listener
-  const engineBadge = document.getElementById('engine-badge');
   window.addEventListener('engine-status-changed', (e) => {
     if (!engineBadge) return;
     if (e.detail.type === 'local') {
-      engineBadge.textContent = '⚡ Localhost Engine';
+      engineBadge.textContent = '⚡ Local Engine';
       engineBadge.style.background = 'rgba(34, 197, 94, 0.15)';
       engineBadge.style.color = '#22c55e';
       engineBadge.style.borderColor = 'rgba(34, 197, 94, 0.3)';
-      engineBadge.title = 'Connected to Localhost:8000 for zero-latency, unrestricted clipping';
+      engineBadge.title = 'Running on Localhost:8000 (Click for diagnostics)';
     } else {
       engineBadge.textContent = '☁️ Cloud Server';
       engineBadge.style.background = 'rgba(59, 130, 246, 0.15)';
       engineBadge.style.color = '#60a5fa';
       engineBadge.style.borderColor = 'rgba(59, 130, 246, 0.3)';
-      engineBadge.title = 'Running directly on Cloud Server';
+      engineBadge.title = 'Running on Cloud Server (Click for diagnostics)';
     }
   });
 
@@ -788,7 +1088,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  btnCloseModal.addEventListener('click', () => {
-    exportModal.classList.remove('active');
-  });
+  if (btnCloseModal) {
+    btnCloseModal.addEventListener('click', () => {
+      exportModal.classList.remove('active');
+    });
+  }
+
+  // Restore Project State from LocalStorage
+  restoreProjectState();
 });

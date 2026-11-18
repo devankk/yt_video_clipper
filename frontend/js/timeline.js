@@ -1,6 +1,6 @@
 /**
  * Advanced Multi-Clip Visual Timeline Editor
- * Dynamic Canvas Ruler, Draggable Range Handles, Zoom/Pan & Playhead Scrubber
+ * Professional NLE Multi-Lane Architecture with Magnetic Snapping & Context Menu
  */
 class TimelineEditor {
   constructor(containerId, options = {}) {
@@ -17,6 +17,7 @@ class TimelineEditor {
     this.zoom = 1.0;
     this.currentTime = 0;
     this.snappingEnabled = true;
+    this.isPlaying = false;
 
     this.clips = [];
     this.activeClipId = null;
@@ -24,8 +25,10 @@ class TimelineEditor {
     this.onClipChange = options.onClipChange || (() => {});
     this.onSeek = options.onSeek || (() => {});
     this.onSplit = options.onSplit || (() => {});
+    this.onClipAction = options.onClipAction || (() => {});
 
     this.ctx = this.rulerCanvas.getContext('2d');
+    this.contextMenu = null;
     this._initEvents();
   }
 
@@ -53,7 +56,7 @@ class TimelineEditor {
     return this.snappingEnabled;
   }
 
-  setPlayheadTime(seconds) {
+  setPlayheadTime(seconds, isPlayback = false) {
     this.currentTime = seconds;
     const px = this.timeToPixels(seconds);
     if (this.playhead) {
@@ -61,6 +64,17 @@ class TimelineEditor {
     }
     if (this.tcCurrent) {
       this.tcCurrent.textContent = this._formatTime(seconds);
+    }
+
+    // Auto-follow playhead during active playback
+    if (isPlayback && this.viewport) {
+      const scrollL = this.viewport.scrollLeft;
+      const viewW = this.viewport.clientWidth;
+      if (px > scrollL + viewW * 0.88) {
+        this.viewport.scrollLeft = px - viewW * 0.15;
+      } else if (px < scrollL) {
+        this.viewport.scrollLeft = Math.max(0, px - 20);
+      }
     }
   }
 
@@ -174,10 +188,46 @@ class TimelineEditor {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
 
+  /**
+   * Multi-Lane Dynamic Stacking Allocation (CapCut / VN Style)
+   * Prevents overlapping clips from occluding each other
+   */
+  _calculateLanes() {
+    const laneEnds = [];
+    const clipLanes = new Map();
+    const sorted = [...this.clips].sort((a, b) => a.start_time - b.start_time);
+
+    sorted.forEach(clip => {
+      let assignedLane = -1;
+      for (let i = 0; i < laneEnds.length; i++) {
+        if (laneEnds[i] <= clip.start_time) {
+          assignedLane = i;
+          laneEnds[i] = clip.end_time;
+          break;
+        }
+      }
+      if (assignedLane === -1) {
+        assignedLane = laneEnds.length;
+        laneEnds.push(clip.end_time);
+      }
+      clipLanes.set(clip.id, assignedLane);
+    });
+
+    return { clipLanes, totalLanes: Math.max(1, laneEnds.length) };
+  }
+
   renderClipBars() {
     // Remove existing clip bar elements
     const oldBars = this.track.querySelectorAll('.clip-range-bar');
     oldBars.forEach(b => b.remove());
+
+    const { clipLanes, totalLanes } = this._calculateLanes();
+
+    // Adjust track and viewport heights dynamically based on lanes
+    const laneHeight = totalLanes === 1 ? 56 : (totalLanes === 2 ? 42 : 36);
+    const trackHeight = Math.max(80, totalLanes * (laneHeight + 8) + 16);
+    this.track.style.height = `${trackHeight}px`;
+    this.viewport.style.height = `${trackHeight + 35}px`;
 
     this.clips.forEach(clip => {
       const leftPx = this.timeToPixels(clip.start_time);
@@ -185,11 +235,16 @@ class TimelineEditor {
       const barWidth = Math.max(24, rightPx - leftPx);
       const duration = Math.max(0, clip.end_time - clip.start_time);
 
+      const lane = clipLanes.get(clip.id) || 0;
+      const topPx = 8 + lane * (laneHeight + 8);
+
       const bar = document.createElement('div');
       bar.className = `clip-range-bar ${clip.id === this.activeClipId ? 'active' : ''}`;
       bar.dataset.id = clip.id;
       bar.style.left = `${leftPx}px`;
       bar.style.width = `${barWidth}px`;
+      bar.style.top = `${topPx}px`;
+      bar.style.height = `${laneHeight}px`;
 
       // Professional VN / CapCut Filmstrip Card Architecture
       bar.innerHTML = `
@@ -204,6 +259,7 @@ class TimelineEditor {
       `;
 
       this._bindClipDrag(bar, clip);
+      this._bindClipContextMenu(bar, clip);
       this.track.appendChild(bar);
     });
   }
@@ -236,7 +292,10 @@ class TimelineEditor {
     let action = 'move';
 
     const onPointerDown = (e) => {
+      if (e.button !== 0) return; // Only primary button
       e.stopPropagation();
+      this._closeContextMenu();
+
       action = e.target.dataset.action || 'move';
       startX = e.clientX;
       initialStart = clip.start_time;
@@ -251,11 +310,11 @@ class TimelineEditor {
         const dt = (dx / this.getTrackWidth()) * this.totalDuration;
 
         if (action === 'resize-left') {
-          let newStart = Math.max(0, Math.min(initialEnd - 1.0, initialStart + dt));
+          let newStart = Math.max(0, Math.min(initialEnd - 0.5, initialStart + dt));
           newStart = this._getSnapTarget(newStart, clip.id);
           clip.start_time = Math.round(newStart * 10) / 10;
         } else if (action === 'resize-right') {
-          let newEnd = Math.max(initialStart + 1.0, Math.min(this.totalDuration, initialEnd + dt));
+          let newEnd = Math.max(initialStart + 0.5, Math.min(this.totalDuration, initialEnd + dt));
           newEnd = this._getSnapTarget(newEnd, clip.id);
           clip.end_time = Math.round(newEnd * 10) / 10;
         } else if (action === 'move') {
@@ -285,12 +344,66 @@ class TimelineEditor {
     bar.addEventListener('pointerdown', onPointerDown);
   }
 
+  _bindClipContextMenu(bar, clip) {
+    bar.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      this.activeClipId = clip.id;
+      this.onClipChange(clip, 'select');
+      this.renderClipBars();
+
+      const rect = this.canvasContainer.getBoundingClientRect();
+      const cursorX = e.clientX - rect.left;
+      const cursorTime = Math.round(this.pixelsToTime(cursorX));
+
+      this._showContextMenu(e.clientX, e.clientY, clip, cursorTime);
+    });
+  }
+
+  _showContextMenu(clientX, clientY, clip, cursorTime) {
+    this._closeContextMenu();
+
+    const menu = document.createElement('div');
+    menu.className = 'timeline-context-menu';
+    menu.style.position = 'fixed';
+    menu.style.top = `${clientY}px`;
+    menu.style.left = `${clientX}px`;
+    menu.style.zIndex = '10001';
+
+    menu.innerHTML = `
+      <div class="ctx-item" data-action="split">✂️ Split at Cursor (${this._formatTime(cursorTime)})</div>
+      <div class="ctx-item" data-action="duplicate">📋 Duplicate Clip</div>
+      <div class="ctx-item" data-action="preview">▶ Preview Selection</div>
+      <div class="ctx-item" data-action="export">⬇ Export This Clip</div>
+      <div class="ctx-divider"></div>
+      <div class="ctx-item ctx-danger" data-action="delete">🗑️ Delete Clip</div>
+    `;
+
+    menu.addEventListener('click', (e) => {
+      const item = e.target.closest('.ctx-item');
+      if (!item) return;
+      const action = item.dataset.action;
+      this._closeContextMenu();
+      this.onClipAction(action, clip, cursorTime);
+    });
+
+    document.body.appendChild(menu);
+    this.contextMenu = menu;
+  }
+
+  _closeContextMenu() {
+    if (this.contextMenu) {
+      this.contextMenu.remove();
+      this.contextMenu = null;
+    }
+  }
+
   splitAtPlayhead() {
     const current = this.currentTime;
-    // Find active clip or any clip that encompasses current playhead
     let target = this.clips.find(c => c.id === this.activeClipId);
-    if (!target || current <= target.start_time + 1 || current >= target.end_time - 1) {
-      target = this.clips.find(c => current > c.start_time + 1 && current < c.end_time - 1);
+    if (!target || current <= target.start_time + 0.5 || current >= target.end_time - 0.5) {
+      target = this.clips.find(c => current > c.start_time + 0.5 && current < c.end_time - 0.5);
     }
 
     if (!target) {
@@ -314,6 +427,7 @@ class TimelineEditor {
     };
 
     this.rulerCanvas.addEventListener('pointerdown', (e) => {
+      this._closeContextMenu();
       handleSeek(e);
       const onMove = (moveEvent) => handleSeek(moveEvent);
       const onUp = () => {
@@ -341,6 +455,14 @@ class TimelineEditor {
         this.hoverTooltip.style.display = 'none';
       }
     });
+
+    // Close context menu on outside click or window scroll
+    window.addEventListener('click', (e) => {
+      if (!e.target.closest('.timeline-context-menu')) {
+        this._closeContextMenu();
+      }
+    });
+    window.addEventListener('scroll', () => this._closeContextMenu(), { passive: true });
 
     // Horizontal wheel zoom / scroll
     this.viewport.addEventListener('wheel', (e) => {
