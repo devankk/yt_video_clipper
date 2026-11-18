@@ -61,6 +61,8 @@ def run_clip_export(job_id: str, url: str, video_id: Optional[str], clip, mode: 
             duration=duration
         )
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         msg = str(e)
         if "Failed to extract any player response" in msg or "Sign in to confirm" in msg:
             msg = "YouTube bot challenge encountered on cloud datacenter. Please configure YouTube cookies via ⚙️ Cookies button or connect to Localhost Engine."
@@ -108,6 +110,8 @@ def run_batch_export(job_id: str, url: str, video_id: Optional[str], clips: list
             file_size=zip_size
         )
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         msg = str(e)
         if "Failed to extract any player response" in msg or "Sign in to confirm" in msg:
             msg = "YouTube bot challenge encountered on cloud datacenter. Please configure YouTube cookies via ⚙️ Cookies button or connect to Localhost Engine."

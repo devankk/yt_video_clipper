@@ -106,17 +106,21 @@ class VideoProcessor:
             else:
                 a_fmt = None
 
-        if v_fmt.get('protocol') == 'http_dash_segments' or 'fragments' in v_fmt:
-            is_dash_fragments = True
-
-        if is_dash_fragments and a_fmt and ('fragments' in a_fmt or a_fmt.get('protocol') == 'http_dash_segments'):
-            return self._process_livestream_fragments(
-                v_fmt, a_fmt, clip, output_path, mode, raw_info, progress_callback
-            )
-        else:
+        # Always prefer direct stream HTTP Range seeking via FFmpeg which handles https, m3u8, and dash reliably
+        try:
             return self._process_direct_stream(
                 v_fmt, a_fmt, clip, output_path, mode, progress_callback
             )
+        except Exception as e:
+            # If direct seeking fails and fragment information is present, attempt fragment fallback
+            if (v_fmt.get('protocol') == 'http_dash_segments' or 'fragments' in v_fmt) and a_fmt:
+                try:
+                    return self._process_livestream_fragments(
+                        v_fmt, a_fmt, clip, output_path, mode, raw_info, progress_callback
+                    )
+                except Exception:
+                    pass
+            raise
 
     def _process_livestream_fragments(
         self,
@@ -163,10 +167,23 @@ class VideoProcessor:
         if progress_callback:
             progress_callback(35, f"Downloading {len(v_tasks)} video chunks & {len(a_tasks)} audio chunks in parallel...")
 
-        chunk_headers = v_fmt.get('http_headers') or {
+        chunk_headers = dict(v_fmt.get('http_headers') or {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
             'Accept': '*/*'
-        }
+        })
+        cookie_file = Path("cookies.txt")
+        if cookie_file.exists() and cookie_file.stat().st_size > 10:
+            try:
+                cookies = []
+                for line in cookie_file.read_text(encoding='utf-8').splitlines():
+                    if line.strip() and not line.startswith('#'):
+                        parts = line.split('\t')
+                        if len(parts) >= 7:
+                            cookies.append(f"{parts[5]}={parts[6]}")
+                if cookies:
+                    chunk_headers['Cookie'] = "; ".join(cookies)
+            except Exception:
+                pass
 
         def fetch_chunk(item):
             url, dest = item
@@ -268,10 +285,29 @@ class VideoProcessor:
         start_str = str(clip.start_time)
         end_str = str(clip.end_time)
 
+        cookie_header = ""
+        for candidate in ("cookies.txt", "backend/cookies.txt", "/opt/render/project/src/cookies.txt"):
+            p_cand = Path(candidate)
+            if p_cand.exists() and p_cand.stat().st_size > 10:
+                try:
+                    cookies = []
+                    for line in p_cand.read_text(encoding='utf-8').splitlines():
+                        if line.strip() and not line.startswith('#'):
+                            parts = line.split('\t')
+                            if len(parts) >= 7:
+                                cookies.append(f"{parts[5]}={parts[6]}")
+                    if cookies:
+                        cookie_header = "; ".join(cookies)
+                        break
+                except Exception:
+                    pass
+
         v_headers = v_fmt.get('http_headers') or {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
             'Accept': '*/*'
         }
+        if cookie_header:
+            v_headers['Cookie'] = cookie_header
         v_header_str = "".join([f"{k}: {v}\r\n" for k, v in v_headers.items()])
 
         cmd = ['ffmpeg', '-y']
@@ -280,11 +316,16 @@ class VideoProcessor:
         cmd.extend(['-ss', start_str, '-to', end_str, '-i', v_fmt['url']])
 
         if a_fmt and a_fmt.get('url'):
-            a_headers = a_fmt.get('http_headers') or v_headers
+            a_headers = a_fmt.get('http_headers') or dict(v_headers)
+            if cookie_header:
+                a_headers['Cookie'] = cookie_header
             a_header_str = "".join([f"{k}: {v}\r\n" for k, v in a_headers.items()])
             if a_header_str:
                 cmd.extend(['-headers', a_header_str])
             cmd.extend(['-ss', start_str, '-to', end_str, '-i', a_fmt['url']])
+            cmd.extend(['-map', '0:v:0', '-map', '1:a:0?'])
+        else:
+            cmd.extend(['-map', '0:v:0', '-map', '0:a?'])
 
         has_audio = bool(a_fmt or (v_fmt.get('acodec') and v_fmt.get('acodec') != 'none'))
 

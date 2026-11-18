@@ -56,6 +56,21 @@ class CookiePayload(BaseModel):
 async def health_check():
     return {"status": "ok", "app": "YouTube Live Stream Video Cutter"}
 
+@app.get("/api/debug/inspect-job/{job_id}")
+def debug_inspect_job(job_id: str):
+    from backend.core.job_manager import job_manager
+    job = job_manager.get_job(job_id)
+    if not job:
+        return {"error": "not found"}
+    return {
+        "id": job.id,
+        "status": job.status,
+        "progress": job.progress,
+        "stage_message": job.stage_message,
+        "error": job.error,
+        "metadata": job.metadata
+    }
+
 @app.get("/api/settings/cookies")
 def get_cookie_status():
     import os
