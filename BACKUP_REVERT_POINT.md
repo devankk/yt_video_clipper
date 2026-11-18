@@ -1,5 +1,28 @@
-# Golden Backup & Revert Point
+# Golden Backup & Revert Points
 
+## 1. Professional NLE v3.0 (Latest Milestone)
+- **Commit Hash**: `912f0f354f9a0e44342385b2e9e6ecba4c8a24c2` (Short: `912f0f3`)
+- **Git Tag**: `pro-nle-v3.0`
+- **Backup Branch**: `backup/pro-nle-v3.0`
+- **Timestamp**: November 18, 2026, 23:53:40 +05:30
+- **Status**: 100% Tested & Verified on Localhost (`http://localhost:8000`)
+- **Key Enhancements**:
+  1. **Multi-Lane NLE Timeline (CapCut / VN Style)**: Dynamic interval scheduling automatically stacks overlapping clips into vertical lanes (Lane 0, Lane 1, Lane 2), completely eliminating 1D occlusion.
+  2. **LocalStorage Auto-Save & Recovery**: Complete project state persistence (video URL, metadata, clips, timestamps, zoom). Reloading the browser immediately restores unsaved projects.
+  3. **Full NLE Keyboard Shortcut Engine**: `Space` (play/pause), `I`/`O` (Mark In/Out), `J`/`K`/`L` shuttling, `←`/`→` 1s step (5s with Shift), `Delete` (remove clip), `Ctrl+D` (duplicate), `Ctrl+Z`/`Ctrl+Y` (undo/redo), `S` (split), `M` (snap), `F` (fit), `Escape` (close modals), and `?` (shortcuts help modal).
+  4. **Right-Click Context Menu**: Right-click any timeline clip to Split at Cursor, Duplicate, Preview, Export, or Delete.
+  5. **Undo & Redo**: Full 50-step command history stack with interactive `↩ Undo` and `↪ Redo` buttons.
+  6. **Table Precision**: Full Hours, Minutes, and Seconds inputs (`[ HH ]h [ MM ]m [ SS ]s`) with spinbuttons.
+  7. **Pro DAW Layout**: Generous 467px control panel width with no label clipping and bottom-right non-intrusive toasts.
+
+```bash
+# Revert to Pro NLE v3.0 anytime:
+git reset --hard pro-nle-v3.0
+```
+
+---
+
+## 2. VN Timeline v2.2 (Previous Baseline)
 - **Commit Hash**: `42b4b19638e84d4c22cc2a810d4d2e795711663e` (Short: `42b4b19`)
 - **Git Tag**: `backup-golden-v2.2`
 - **Backup Branch**: `backup/stable-vn-timeline`
