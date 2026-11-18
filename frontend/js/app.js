@@ -580,11 +580,107 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function showModalError(errMsg) {
     modalStatus.innerHTML = `<span style="color: var(--status-red);">${errMsg}</span>`;
-    modalActions.innerHTML = `
-      <button class="btn btn-secondary" onclick="document.getElementById('export-modal').classList.remove('active')">
-        Close
-      </button>
-    `;
+    let actions = `<button class="btn btn-secondary" onclick="document.getElementById('export-modal').classList.remove('active')">Close</button>`;
+    if (errMsg.includes('datacenter') || errMsg.includes('bot') || errMsg.includes('player response') || errMsg.includes('cookies') || errMsg.includes('Sign in')) {
+      actions = `
+        <button class="btn btn-primary" onclick="document.getElementById('export-modal').classList.remove('active'); document.getElementById('cookies-modal').classList.add('active');" style="font-size: 0.85rem;">
+          ⚙️ Configure YouTube Cookies
+        </button>
+        ${actions}
+      `;
+    }
+    modalActions.innerHTML = actions;
+  }
+
+  // Engine Status Badge Listener
+  const engineBadge = document.getElementById('engine-badge');
+  window.addEventListener('engine-status-changed', (e) => {
+    if (!engineBadge) return;
+    if (e.detail.type === 'local') {
+      engineBadge.textContent = '⚡ Localhost Engine';
+      engineBadge.style.background = 'rgba(34, 197, 94, 0.15)';
+      engineBadge.style.color = '#22c55e';
+      engineBadge.style.borderColor = 'rgba(34, 197, 94, 0.3)';
+      engineBadge.title = 'Connected to Localhost:8000 for zero-latency, unrestricted clipping';
+    } else {
+      engineBadge.textContent = '☁️ Cloud Server';
+      engineBadge.style.background = 'rgba(59, 130, 246, 0.15)';
+      engineBadge.style.color = '#60a5fa';
+      engineBadge.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+      engineBadge.title = 'Running directly on Cloud Server';
+    }
+  });
+
+  // Cookies Settings Modal
+  const btnSettingsCookies = document.getElementById('btn-settings-cookies');
+  const cookiesModal = document.getElementById('cookies-modal');
+  const btnCloseCookiesModal = document.getElementById('btn-close-cookies-modal');
+  const cookiesStatusIndicator = document.getElementById('cookies-status-indicator');
+  const cookiesTextarea = document.getElementById('cookies-textarea');
+  const cookiesFileUpload = document.getElementById('cookies-file-upload');
+  const btnSaveCookies = document.getElementById('btn-save-cookies');
+
+  async function refreshCookieStatus() {
+    if (!cookiesStatusIndicator) return;
+    try {
+      const status = await API.getCookieStatus();
+      if (status.has_cookies) {
+        cookiesStatusIndicator.innerHTML = `Status: <strong style="color: #22c55e;">Cookies Active (${status.source}, ${status.file_size || 0} bytes)</strong>`;
+      } else {
+        cookiesStatusIndicator.innerHTML = `Status: <span style="color: var(--text-muted);">No Cookies Configured (Using Anonymous Mode)</span>`;
+      }
+    } catch (e) {
+      cookiesStatusIndicator.textContent = "Status: Could not check cookie status";
+    }
+  }
+
+  if (btnSettingsCookies) {
+    btnSettingsCookies.addEventListener('click', () => {
+      cookiesModal.classList.add('active');
+      refreshCookieStatus();
+    });
+  }
+
+  if (btnCloseCookiesModal) {
+    btnCloseCookiesModal.addEventListener('click', () => {
+      cookiesModal.classList.remove('active');
+    });
+  }
+
+  if (cookiesFileUpload) {
+    cookiesFileUpload.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          cookiesTextarea.value = evt.target.result;
+        };
+        reader.readAsText(file);
+      }
+    });
+  }
+
+  if (btnSaveCookies) {
+    btnSaveCookies.addEventListener('click', async () => {
+      const text = cookiesTextarea.value.trim();
+      if (!text) {
+        showToast("Please paste or upload cookies first", "warning");
+        return;
+      }
+      try {
+        btnSaveCookies.disabled = true;
+        btnSaveCookies.textContent = "Saving...";
+        await API.saveCookies(text);
+        showToast("Cookies saved successfully!", "success");
+        refreshCookieStatus();
+        cookiesModal.classList.remove('active');
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        btnSaveCookies.disabled = false;
+        btnSaveCookies.textContent = "Save Cookies";
+      }
+    });
   }
 
   btnCloseModal.addEventListener('click', () => {

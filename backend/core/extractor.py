@@ -60,6 +60,25 @@ class YouTubeExtractor:
                 }
             }
         }
+
+        # Check for cookies file or environment variable
+        cookie_file = None
+        for candidate in ("cookies.txt", "backend/cookies.txt", "/opt/render/project/src/cookies.txt"):
+            if os.path.exists(candidate) and os.path.getsize(candidate) > 10:
+                cookie_file = str(Path(candidate).resolve())
+                break
+
+        if not cookie_file and os.environ.get("YOUTUBE_COOKIES"):
+            try:
+                c_p = Path("cookies.txt")
+                c_p.write_text(os.environ["YOUTUBE_COOKIES"].strip(), encoding="utf-8")
+                cookie_file = str(c_p.resolve())
+            except Exception:
+                pass
+
+        if cookie_file:
+            opts['cookiefile'] = cookie_file
+
         # Detect Deno from pip package or environment PATH
         try:
             import deno

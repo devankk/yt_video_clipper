@@ -61,7 +61,10 @@ def run_clip_export(job_id: str, url: str, video_id: Optional[str], clip, mode: 
             duration=duration
         )
     except Exception as e:
-        job.fail(f"Export processing failed: {str(e)}")
+        msg = str(e)
+        if "Failed to extract any player response" in msg or "Sign in to confirm" in msg:
+            msg = "YouTube bot challenge encountered on cloud datacenter. Please configure YouTube cookies via ⚙️ Cookies button or connect to Localhost Engine."
+        job.fail(f"Export processing failed: {msg}")
 
 def run_batch_export(job_id: str, url: str, video_id: Optional[str], clips: list, base_title: Optional[str], mode: str, quality: str = "highest"):
     job = job_manager.get_job(job_id)
@@ -105,7 +108,10 @@ def run_batch_export(job_id: str, url: str, video_id: Optional[str], clips: list
             file_size=zip_size
         )
     except Exception as e:
-        job.fail(f"Batch export failed: {str(e)}")
+        msg = str(e)
+        if "Failed to extract any player response" in msg or "Sign in to confirm" in msg:
+            msg = "YouTube bot challenge encountered on cloud datacenter. Please configure YouTube cookies via ⚙️ Cookies button or connect to Localhost Engine."
+        job.fail(f"Batch export failed: {msg}")
 
 @router.post("/export-clip", response_model=JobStatusResponse)
 async def export_single_clip(req: ExportClipRequest, background_tasks: BackgroundTasks):

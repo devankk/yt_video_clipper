@@ -1,9 +1,57 @@
 /**
- * Backend API Client with Real-Time Polling & SSE Job Tracking
+ * Backend API Client with Real-Time Polling & Hybrid Engine Support
  */
 const API = {
+  activeBase: '',
+  engineType: 'cloud', // 'local' or 'cloud'
+
+  getBaseUrl() {
+    return this.activeBase || '';
+  },
+
+  async init() {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isLocalhost) {
+      this.activeBase = '';
+      this.engineType = 'local';
+      this._notifyEngineChange();
+      return;
+    }
+
+    // When running on Cloud (Render), probe if Local Engine (localhost:8000) is running
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1500);
+      const res = await fetch('http://localhost:8000/health', {
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' }
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        this.activeBase = 'http://localhost:8000';
+        this.engineType = 'local';
+        console.log('[Hybrid Engine] Connected to Local Desktop Engine at http://localhost:8000');
+        this._notifyEngineChange();
+        return;
+      }
+    } catch (e) {
+      // Local engine not running, stay on cloud server
+    }
+
+    this.activeBase = '';
+    this.engineType = 'cloud';
+    this._notifyEngineChange();
+  },
+
+  _notifyEngineChange() {
+    const event = new CustomEvent('engine-status-changed', {
+      detail: { type: this.engineType, baseUrl: this.activeBase }
+    });
+    window.dispatchEvent(event);
+  },
+
   async getVideoInfo(url) {
-    const res = await fetch('/api/video-info', {
+    const res = await fetch(`${this.getBaseUrl()}/api/video-info`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url })
@@ -18,7 +66,7 @@ const API = {
   async uploadVideoFile(file) {
     const formData = new FormData();
     formData.append('file', file);
-    const res = await fetch('/api/upload-video', {
+    const res = await fetch(`${this.getBaseUrl()}/api/upload-video`, {
       method: 'POST',
       body: formData
     });
@@ -30,7 +78,7 @@ const API = {
   },
 
   async exportClip(payload) {
-    const res = await fetch('/api/export-clip', {
+    const res = await fetch(`${this.getBaseUrl()}/api/export-clip`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -43,7 +91,7 @@ const API = {
   },
 
   async exportBatch(payload) {
-    const res = await fetch('/api/export-batch', {
+    const res = await fetch(`${this.getBaseUrl()}/api/export-batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -51,6 +99,29 @@ const API = {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Batch export request failed' }));
       throw new Error(err.detail || 'Batch export request failed');
+    }
+    return res.json();
+  },
+
+  async getCookieStatus() {
+    try {
+      const res = await fetch(`${this.getBaseUrl()}/api/settings/cookies`);
+      if (res.ok) return res.json();
+    } catch (e) {
+      // ignore
+    }
+    return { has_cookies: false, source: 'none' };
+  },
+
+  async saveCookies(cookiesText) {
+    const res = await fetch(`${this.getBaseUrl()}/api/settings/cookies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cookies: cookiesText })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Failed to save cookies' }));
+      throw new Error(err.detail || 'Failed to save cookies');
     }
     return res.json();
   },
@@ -64,13 +135,17 @@ const API = {
       if (pollTimer) clearInterval(pollTimer);
     };
 
-    // Polling function (checks every 800ms)
     const checkStatus = async () => {
       if (isDone) return;
       try {
-        const res = await fetch(`/api/jobs/${jobId}`);
+        const res = await fetch(`${this.getBaseUrl()}/api/jobs/${jobId}`);
         if (!res.ok) return;
         const data = await res.json();
+
+        // Format absolute download URL if relative
+        if (data.download_url && !data.download_url.startsWith('http')) {
+          data.download_url = `${this.getBaseUrl()}${data.download_url}`;
+        }
 
         if (onUpdate) onUpdate(data);
 
@@ -86,10 +161,14 @@ const API = {
       }
     };
 
-    // Run first check immediately, then poll every 800ms
     checkStatus();
     pollTimer = setInterval(checkStatus, 800);
 
     return { stop: stopTracking };
   }
 };
+
+// Initialize engine detection on script load
+if (typeof window !== 'undefined') {
+  API.init();
+}

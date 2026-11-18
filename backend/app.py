@@ -25,14 +25,54 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def add_pna_and_cors_headers(request, call_next):
+    if request.method == "OPTIONS":
+        from fastapi.responses import Response
+        resp = Response()
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Methods"] = "*"
+        resp.headers["Access-Control-Allow-Headers"] = "*"
+        resp.headers["Access-Control-Allow-Private-Network"] = "true"
+        return resp
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
 # Include API Routers
 app.include_router(video_router)
 app.include_router(clip_router)
 app.include_router(download_router)
 
+from pydantic import BaseModel
+from fastapi import HTTPException
+
+class CookiePayload(BaseModel):
+    cookies: str
+
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "app": "YouTube Live Stream Video Cutter"}
+
+@app.get("/api/settings/cookies")
+def get_cookie_status():
+    import os
+    has_file = os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 10
+    has_env = bool(os.environ.get("YOUTUBE_COOKIES"))
+    return {
+        "has_cookies": has_file or has_env,
+        "source": "env" if has_env else ("file" if has_file else "none"),
+        "file_size": os.path.getsize("cookies.txt") if has_file else 0
+    }
+
+@app.post("/api/settings/cookies")
+def update_cookies(payload: CookiePayload):
+    from pathlib import Path
+    data = payload.cookies.strip()
+    if not data:
+        raise HTTPException(status_code=400, detail="Cookie content cannot be empty.")
+    Path("cookies.txt").write_text(data, encoding="utf-8")
+    return {"status": "ok", "message": "Cookies saved successfully!", "size": len(data)}
 
 @app.get("/api/debug-env")
 def debug_env(client: str = "web_embedded", skip_webpage: bool = True, timeout: int = 25):

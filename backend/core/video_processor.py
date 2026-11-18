@@ -88,17 +88,23 @@ class VideoProcessor:
             else:
                 v_fmt = formats[-1]
 
-        # Look for best audio format (AAC / M4A highest bitrate e.g. 144k format 140 instead of 48k format 139)
-        audio_fmts = [f for f in formats if f.get('vcodec') == 'none' and f.get('acodec') != 'none']
-        aac_fmts = [f for f in audio_fmts if f.get('acodec', '').startswith('mp4a')]
-        if aac_fmts:
-            aac_fmts.sort(key=lambda x: (x.get('abr') or x.get('tbr') or 0), reverse=True)
-            a_fmt = aac_fmts[0]
-        elif audio_fmts:
-            audio_fmts.sort(key=lambda x: (x.get('abr') or x.get('tbr') or 0), reverse=True)
-            a_fmt = audio_fmts[0]
-        else:
+        # Check if selected video format already has embedded audio
+        has_embedded_audio = bool(v_fmt.get('acodec') and v_fmt.get('acodec') != 'none')
+
+        if has_embedded_audio:
             a_fmt = None
+        else:
+            # Look for best separate audio format (AAC / M4A highest bitrate)
+            audio_fmts = [f for f in formats if f.get('vcodec') == 'none' and f.get('acodec') != 'none']
+            aac_fmts = [f for f in audio_fmts if f.get('acodec', '').startswith('mp4a')]
+            if aac_fmts:
+                aac_fmts.sort(key=lambda x: (x.get('abr') or x.get('tbr') or 0), reverse=True)
+                a_fmt = aac_fmts[0]
+            elif audio_fmts:
+                audio_fmts.sort(key=lambda x: (x.get('abr') or x.get('tbr') or 0), reverse=True)
+                a_fmt = audio_fmts[0]
+            else:
+                a_fmt = None
 
         if v_fmt.get('protocol') == 'http_dash_segments' or 'fragments' in v_fmt:
             is_dash_fragments = True
@@ -157,9 +163,14 @@ class VideoProcessor:
         if progress_callback:
             progress_callback(35, f"Downloading {len(v_tasks)} video chunks & {len(a_tasks)} audio chunks in parallel...")
 
+        chunk_headers = v_fmt.get('http_headers') or {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+            'Accept': '*/*'
+        }
+
         def fetch_chunk(item):
             url, dest = item
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            req = urllib.request.Request(url, headers=chunk_headers)
             with urllib.request.urlopen(req, timeout=15) as resp:
                 with open(dest, 'wb') as f:
                     f.write(resp.read())
@@ -257,14 +268,30 @@ class VideoProcessor:
         start_str = str(clip.start_time)
         end_str = str(clip.end_time)
 
-        cmd = ['ffmpeg', '-y', '-ss', start_str, '-to', end_str, '-i', v_fmt['url']]
+        v_headers = v_fmt.get('http_headers') or {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+            'Accept': '*/*'
+        }
+        v_header_str = "".join([f"{k}: {v}\r\n" for k, v in v_headers.items()])
+
+        cmd = ['ffmpeg', '-y']
+        if v_header_str:
+            cmd.extend(['-headers', v_header_str])
+        cmd.extend(['-ss', start_str, '-to', end_str, '-i', v_fmt['url']])
+
         if a_fmt and a_fmt.get('url'):
+            a_headers = a_fmt.get('http_headers') or v_headers
+            a_header_str = "".join([f"{k}: {v}\r\n" for k, v in a_headers.items()])
+            if a_header_str:
+                cmd.extend(['-headers', a_header_str])
             cmd.extend(['-ss', start_str, '-to', end_str, '-i', a_fmt['url']])
+
+        has_audio = bool(a_fmt or (v_fmt.get('acodec') and v_fmt.get('acodec') != 'none'))
 
         if mode == "fast":
             cmd.extend([
                 '-c:v', 'copy',
-                '-c:a', 'copy' if a_fmt else 'none',
+                '-c:a', 'copy' if has_audio else 'none',
                 '-avoid_negative_ts', 'make_zero',
                 '-movflags', '+faststart',
                 str(output_path)
@@ -274,7 +301,7 @@ class VideoProcessor:
                 '-c:v', 'libx264',
                 '-preset', 'veryfast',
                 '-crf', '18',
-                '-c:a', 'aac' if a_fmt else 'none',
+                '-c:a', 'aac' if has_audio else 'none',
                 '-b:a', '192k',
                 '-avoid_negative_ts', 'make_zero',
                 '-movflags', '+faststart',

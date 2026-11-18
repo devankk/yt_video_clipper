@@ -40,7 +40,9 @@
     </div>
 
     <!-- Local Media Ingestion Option -->
-    <div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span id="engine-badge" class="brand-badge" style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); font-size: 0.75rem; cursor: pointer;" title="Active Processing Engine">⚡ Local Engine</span>
+      <button id="btn-settings-cookies" class="btn btn-secondary" title="Configure YouTube Cookies" style="padding: 6px 10px; font-size: 0.8rem;">⚙️ Cookies</button>
       <input type="file" id="local-file-input" accept="video/mp4,video/mkv,video/webm" style="display: none;">
       <button id="btn-upload-local" class="btn btn-secondary">Upload File</button>
     </div>
@@ -229,6 +231,30 @@
 
       <div id="modal-actions" style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 0.5rem;">
         <!-- Download links injected here upon completion -->
+      </div>
+    </div>
+  </div>
+
+  <!-- YouTube Cookies / Cloud Auth Modal -->
+  <div id="cookies-modal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 520px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="font-size: 1.1rem; font-weight: 700; color: #fff;">⚙️ YouTube Cookies Configuration</h3>
+        <button id="btn-close-cookies-modal" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.25rem;">✕</button>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4; margin: 0;">
+        Cloud hosts (Render, AWS) are sometimes rate-limited by YouTube bot detection. Supplying YouTube session cookies enables unrestricted, high-speed exports on cloud servers.
+      </p>
+      <div id="cookies-status-indicator" style="padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 6px; font-size: 0.85rem;">
+        Status: Checking...
+      </div>
+      <textarea id="cookies-textarea" class="url-input" style="height: 120px; font-family: var(--font-mono); font-size: 0.75rem; resize: vertical;" placeholder="Paste Netscape cookies.txt content here..."></textarea>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.25rem;">
+        <label class="btn btn-secondary" style="cursor: pointer; font-size: 0.8rem; margin: 0;">
+          📁 Choose cookies.txt
+          <input type="file" id="cookies-file-upload" accept=".txt" style="display: none;">
+        </label>
+        <button id="btn-save-cookies" class="btn btn-primary" style="font-size: 0.8rem;">Save Cookies</button>
       </div>
     </div>
   </div>
