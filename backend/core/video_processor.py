@@ -107,17 +107,14 @@ class VideoProcessor:
             print(f"[VideoProcessor] Candidate format {v_fmt.get('format_id')} (protocol={v_fmt.get('protocol')}, fragmented={is_fragmented}, has_frags={has_frags})...", flush=True)
 
             try:
-                if is_fragmented and has_frags:
+                if is_fragmented and (has_frags or v_fmt.get('url')):
                     return self._process_livestream_fragments(
                         v_fmt, a_fmt, clip, output_path, mode, raw_info, progress_callback
                     )
-                elif not is_fragmented:
+                else:
                     return self._process_direct_stream(
                         v_fmt, a_fmt, clip, output_path, mode, progress_callback
                     )
-                else:
-                    print(f"[VideoProcessor] Skipping fragmented format {v_fmt.get('format_id')} without fragments...", flush=True)
-                    continue
             except Exception as e:
                 last_error = e
                 err_str = str(e)
