@@ -1,6 +1,29 @@
 # Golden Backup & Revert Points
 
-## 1. Professional NLE v3.0 (Latest Milestone)
+## 1. Preview Bounds & Professional NLE v3.1 (Latest Milestone)
+- **Commit Hash**: `50fbd5c6b907a34661ea76840d58852e9da288ae` (Short: `50fbd5c`)
+- **Git Tag**: `preview-bounds-v3.1`
+- **Backup Branch**: `backup/preview-bounds-v3.1`
+- **Timestamp**: November 19, 2026, 00:07:25 +05:30
+- **Status**: 100% Tested & Verified on Localhost (`http://localhost:8000`)
+- **Key Enhancements**:
+  1. **Strict Preview Boundary Lock**: During clip preview, the player is strictly clamped inside `[start_time, end_time]`. It cannot wander or seek before `start_time` (even if keyframe drift occurs) and automatically halts at `end_time` without playing ahead into the rest of the stream.
+  2. **Replay & Seek Clamping**: Seeking forward or backward via `J`, `L`, arrow keys, or timeline ruler is clamped to clip boundaries. Hitting `Space` at the end loops back to `start_time`.
+  3. **Multi-Lane NLE Timeline (CapCut / VN Style)**: Dynamic interval scheduling automatically stacks overlapping clips into vertical lanes (Lane 0, Lane 1, Lane 2), completely eliminating 1D occlusion.
+  4. **LocalStorage Auto-Save & Recovery**: Complete project state persistence (video URL, metadata, clips, timestamps, zoom). Reloading the browser immediately restores unsaved projects.
+  5. **Full NLE Keyboard Shortcut Engine**: `Space` (play/pause), `I`/`O` (Mark In/Out), `J`/`K`/`L` shuttling, `←`/`→` 1s step (5s with Shift), `Delete` (remove clip), `Ctrl+D` (duplicate), `Ctrl+Z`/`Ctrl+Y` (undo/redo), `S` (split), `M` (snap), `F` (fit), `Escape` (close modals), and `?` (shortcuts help modal).
+  6. **Right-Click Context Menu**: Right-click any timeline clip to Split at Cursor, Duplicate, Preview, Export, or Delete.
+  7. **Undo & Redo**: Full 50-step command history stack with interactive `↩ Undo` and `↪ Redo` buttons.
+  8. **Table Precision**: Full Hours, Minutes, and Seconds inputs (`[ HH ]h [ MM ]m [ SS ]s`) with spinbuttons.
+
+```bash
+# Revert to Preview Bounds v3.1 anytime:
+git reset --hard preview-bounds-v3.1
+```
+
+---
+
+## 2. Professional NLE v3.0
 - **Commit Hash**: `912f0f354f9a0e44342385b2e9e6ecba4c8a24c2` (Short: `912f0f3`)
 - **Git Tag**: `pro-nle-v3.0`
 - **Backup Branch**: `backup/pro-nle-v3.0`
