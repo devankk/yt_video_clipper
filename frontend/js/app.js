@@ -446,7 +446,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Single Clip Export Trigger
   btnExportCurrent.addEventListener('click', () => {
-    const active = clipManager.getActiveClip();
+    let active = clipManager.getActiveClip();
+    if (!active) {
+      const sH = parseInt(startH.value || '0', 10);
+      const sM = parseInt(startM.value || '0', 10);
+      const sS = parseInt(startS.value || '0', 10);
+      const eH = parseInt(endH.value || '0', 10);
+      const eM = parseInt(endM.value || '0', 10);
+      const eS = parseInt(endS.value || '0', 10);
+      const sTotal = sH * 3600 + sM * 60 + sS;
+      const eTotal = eH * 3600 + eM * 60 + eS;
+      active = clipManager.addClip(sTotal, Math.max(sTotal + 1, eTotal || (sTotal + 60)), "Clip 1");
+    }
     if (active) triggerSingleExport(active);
   });
 
@@ -537,33 +548,50 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Modal helpers
   function openModal(title, initialStatus) {
-    modalTitle.textContent = title;
-    modalStatus.textContent = initialStatus;
-    progressBar.style.width = '0%';
-    progressPct.textContent = '0%';
-    modalActions.innerHTML = '';
-    exportModal.classList.add('active');
+    const eModal = document.getElementById('export-modal');
+    const mTitle = document.getElementById('modal-title');
+    const mStatus = document.getElementById('modal-status');
+    const pBar = document.getElementById('progress-bar-fill');
+    const pPct = document.getElementById('progress-pct');
+    const mActions = document.getElementById('modal-actions');
+
+    if (mTitle) mTitle.textContent = title;
+    if (mStatus) mStatus.textContent = initialStatus;
+    if (pBar) pBar.style.width = '0%';
+    if (pPct) pPct.textContent = '0%';
+    if (mActions) mActions.innerHTML = '';
+    if (eModal) eModal.classList.add('active');
   }
 
   function updateModalProgress(pct, status) {
-    progressBar.style.width = `${pct}%`;
-    progressPct.textContent = `${pct}%`;
-    modalStatus.textContent = status;
+    const pBar = document.getElementById('progress-bar-fill');
+    const pPct = document.getElementById('progress-pct');
+    const mStatus = document.getElementById('modal-status');
+    if (pBar) pBar.style.width = `${pct}%`;
+    if (pPct) pPct.textContent = `${pct}%`;
+    if (mStatus) mStatus.textContent = status;
   }
 
   function showDownloadLink(downloadUrl, filename) {
-    modalStatus.textContent = "Export completed successfully!";
-    progressBar.style.width = '100%';
-    progressPct.textContent = '100%';
+    const mStatus = document.getElementById('modal-status');
+    const pBar = document.getElementById('progress-bar-fill');
+    const pPct = document.getElementById('progress-pct');
+    const mActions = document.getElementById('modal-actions');
 
-    modalActions.innerHTML = `
-      <a href="${downloadUrl}" download="${filename}" class="btn btn-primary" style="text-decoration: none; font-size: 0.95rem; padding: 0.65rem 1.25rem;">
-        ⬇ Download ${filename}
-      </a>
-      <button class="btn btn-secondary" onclick="document.getElementById('export-modal').classList.remove('active')">
-        Close
-      </button>
-    `;
+    if (mStatus) mStatus.textContent = "Export completed successfully!";
+    if (pBar) pBar.style.width = '100%';
+    if (pPct) pPct.textContent = '100%';
+
+    if (mActions) {
+      mActions.innerHTML = `
+        <a href="${downloadUrl}" download="${filename}" class="btn btn-primary" style="text-decoration: none; font-size: 0.95rem; padding: 0.65rem 1.25rem;">
+          ⬇ Download ${filename}
+        </a>
+        <button class="btn btn-secondary" onclick="document.getElementById('export-modal').classList.remove('active')">
+          Close
+        </button>
+      `;
+    }
 
     // Trigger immediate browser download
     try {
@@ -579,7 +607,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function showModalError(errMsg) {
-    modalStatus.innerHTML = `<span style="color: var(--status-red);">${errMsg}</span>`;
+    const mStatus = document.getElementById('modal-status');
+    const mActions = document.getElementById('modal-actions');
+    if (mStatus) {
+      mStatus.innerHTML = `<span style="color: var(--status-red);">${errMsg}</span>`;
+    }
     let actions = `<button class="btn btn-secondary" onclick="document.getElementById('export-modal').classList.remove('active')">Close</button>`;
     if (errMsg.includes('datacenter') || errMsg.includes('bot') || errMsg.includes('player response') || errMsg.includes('cookies') || errMsg.includes('Sign in')) {
       actions = `
@@ -589,7 +621,9 @@ document.addEventListener('DOMContentLoaded', () => {
         ${actions}
       `;
     }
-    modalActions.innerHTML = actions;
+    if (mActions) {
+      mActions.innerHTML = actions;
+    }
   }
 
   // Engine Status Badge Listener
