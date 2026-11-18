@@ -15,6 +15,7 @@ from backend.config import EXPORTS_DIR
 router = APIRouter(prefix="/api", tags=["clips"])
 
 def run_clip_export(job_id: str, url: str, video_id: Optional[str], clip, mode: str, quality: str = "highest"):
+    print(f"[run_clip_export] job={job_id}, url={url}, video_id={video_id}, mode={mode}, quality={quality}, clip={clip}", flush=True)
     job = job_manager.get_job(job_id)
     if not job:
         return

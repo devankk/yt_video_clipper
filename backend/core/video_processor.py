@@ -45,8 +45,16 @@ class VideoProcessor:
         formats = raw_info.get('formats', [])
         is_dash_fragments = False
 
-        # Select video format matching requested quality
-        v_fmt = None
+        # Rank formats: strongly prefer HLS (m3u8_native) and formats with embedded audio
+        # which GoogleVideo CDN serves reliably without 403 Forbidden errors.
+        def format_rank(f):
+            is_m3u8 = 10 if f.get('protocol') == 'm3u8_native' or 'm3u8' in f.get('protocol', '') else 0
+            has_audio = 5 if f.get('acodec') and f.get('acodec') != 'none' else 0
+            is_avc = 2 if f.get('vcodec', '').startswith('avc1') else 0
+            fps = float(f.get('fps') or 0)
+            tbr = float(f.get('tbr') or f.get('vbr') or 0)
+            return (is_m3u8 + has_audio, is_avc, fps, tbr)
+
         target_height = None
         if quality and quality != "highest":
             digits = [int(d) for d in re.findall(r'\d+', quality)]
@@ -55,72 +63,67 @@ class VideoProcessor:
                 width_to_height = {3840: 2160, 2560: 1440, 1920: 1080, 1280: 720, 854: 480, 640: 360, 426: 240, 256: 144}
                 target_height = width_to_height.get(val, val)
 
+        # Assemble prioritized list of video format candidates
+        candidates = []
         if target_height:
-            candidates = [f for f in formats if f.get('height') == target_height and f.get('vcodec') != 'none']
-            if candidates:
-                avc = [f for f in candidates if f.get('vcodec', '').startswith('avc1')]
-                if avc:
-                    avc.sort(key=lambda x: (x.get('fps') or 0, x.get('tbr') or x.get('vbr') or 0), reverse=True)
-                    v_fmt = avc[0]
-                else:
-                    candidates.sort(key=lambda x: (x.get('fps') or 0, x.get('tbr') or x.get('vbr') or 0), reverse=True)
-                    v_fmt = candidates[0]
+            height_matches = [f for f in formats if f.get('height') == target_height and f.get('vcodec') != 'none']
+            height_matches.sort(key=format_rank, reverse=True)
+            candidates.extend(height_matches)
 
-        # If not found or if 'highest', choose highest available resolution
-        if not v_fmt:
-            for preferred_height in [2160, 1440, 1080, 720, 480, 360]:
-                candidates = [f for f in formats if f.get('height') == preferred_height and f.get('vcodec') != 'none']
-                if candidates:
-                    avc = [f for f in candidates if f.get('vcodec', '').startswith('avc1')]
-                    if avc:
-                        avc.sort(key=lambda x: (x.get('fps') or 0, x.get('tbr') or x.get('vbr') or 0), reverse=True)
-                        v_fmt = avc[0]
-                    else:
-                        candidates.sort(key=lambda x: (x.get('fps') or 0, x.get('tbr') or x.get('vbr') or 0), reverse=True)
-                        v_fmt = candidates[0]
-                    break
+        # Append fallbacks by standard resolutions in descending quality
+        for h in [1080, 720, 360, 144, 480, 1440, 2160]:
+            h_fmts = [f for f in formats if f.get('height') == h and f.get('vcodec') != 'none']
+            h_fmts.sort(key=format_rank, reverse=True)
+            for f in h_fmts:
+                if f not in candidates:
+                    candidates.append(f)
 
-        if not v_fmt:
-            candidates = [f for f in formats if f.get('vcodec') != 'none' and f.get('height')]
-            if candidates:
-                candidates.sort(key=lambda x: (x.get('height') or 0, x.get('fps') or 0, x.get('tbr') or 0), reverse=True)
-                v_fmt = candidates[0]
-            else:
-                v_fmt = formats[-1]
+        if not candidates:
+            candidates = [f for f in formats if f.get('vcodec') != 'none'] or [formats[-1]]
 
-        # Check if selected video format already has embedded audio
-        has_embedded_audio = bool(v_fmt.get('acodec') and v_fmt.get('acodec') != 'none')
-
-        if has_embedded_audio:
-            a_fmt = None
+        # Prepare audio format lookup
+        audio_fmts = [f for f in formats if f.get('vcodec') == 'none' and f.get('acodec') != 'none']
+        aac_fmts = [f for f in audio_fmts if f.get('acodec', '').startswith('mp4a')]
+        if aac_fmts:
+            aac_fmts.sort(key=lambda x: (x.get('abr') or x.get('tbr') or 0), reverse=True)
+            best_audio = aac_fmts[0]
+        elif audio_fmts:
+            audio_fmts.sort(key=lambda x: (x.get('abr') or x.get('tbr') or 0), reverse=True)
+            best_audio = audio_fmts[0]
         else:
-            # Look for best separate audio format (AAC / M4A highest bitrate)
-            audio_fmts = [f for f in formats if f.get('vcodec') == 'none' and f.get('acodec') != 'none']
-            aac_fmts = [f for f in audio_fmts if f.get('acodec', '').startswith('mp4a')]
-            if aac_fmts:
-                aac_fmts.sort(key=lambda x: (x.get('abr') or x.get('tbr') or 0), reverse=True)
-                a_fmt = aac_fmts[0]
-            elif audio_fmts:
-                audio_fmts.sort(key=lambda x: (x.get('abr') or x.get('tbr') or 0), reverse=True)
-                a_fmt = audio_fmts[0]
-            else:
-                a_fmt = None
+            best_audio = None
 
-        # Always prefer direct stream HTTP Range seeking via FFmpeg which handles https, m3u8, and dash reliably
-        try:
-            return self._process_direct_stream(
-                v_fmt, a_fmt, clip, output_path, mode, progress_callback
-            )
-        except Exception as e:
-            # If direct seeking fails and fragment information is present, attempt fragment fallback
-            if (v_fmt.get('protocol') == 'http_dash_segments' or 'fragments' in v_fmt) and a_fmt:
-                try:
-                    return self._process_livestream_fragments(
-                        v_fmt, a_fmt, clip, output_path, mode, raw_info, progress_callback
-                    )
-                except Exception:
-                    pass
-            raise
+        last_error = None
+        # Try candidate formats in priority order; if a format gets 403 Forbidden, automatically try the next candidate
+        for v_fmt in candidates:
+            has_embedded_audio = bool(v_fmt.get('acodec') and v_fmt.get('acodec') != 'none')
+            a_fmt = None if has_embedded_audio else best_audio
+
+            try:
+                return self._process_direct_stream(
+                    v_fmt, a_fmt, clip, output_path, mode, progress_callback
+                )
+            except Exception as e:
+                last_error = e
+                err_str = str(e)
+                if "403 Forbidden" in err_str or "Server returned 403" in err_str:
+                    print(f"[VideoProcessor] Candidate format {v_fmt.get('format_id')} failed with 403, trying next candidate...", flush=True)
+                    continue
+                else:
+                    raise
+
+        # If all candidates threw 403 or errors, try fragment fallback if present
+        if (candidates[0].get('protocol') == 'http_dash_segments' or 'fragments' in candidates[0]) and best_audio:
+            try:
+                return self._process_livestream_fragments(
+                    candidates[0], best_audio, clip, output_path, mode, raw_info, progress_callback
+                )
+            except Exception:
+                pass
+
+        if last_error:
+            raise last_error
+        raise RuntimeError("No suitable stream format could be processed.")
 
     def _process_livestream_fragments(
         self,
@@ -352,8 +355,10 @@ class VideoProcessor:
         if progress_callback:
             progress_callback(60, "Encoding clip...")
 
+        print(f"[FFmpeg CMD]: {' '.join(cmd)}", flush=True)
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode != 0:
+            print(f"[FFmpeg STDERR]:\n{res.stderr}", flush=True)
             raise RuntimeError(f"FFmpeg stream seeking failed: {res.stderr[-400:]}")
 
         if progress_callback:
