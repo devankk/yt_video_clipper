@@ -72,9 +72,33 @@ class ClipManager {
     if (active) {
       active.start_time = Math.max(0, start);
       active.end_time = Math.min(this.totalDuration || 999999, Math.max(start + 1, end));
-      this.render();
+      this.syncInputsForClip(active);
       this.onListChange(this.clips, this.activeClipId);
     }
+  }
+
+  syncInputsForClip(clip) {
+    const tr = this.tableBody.querySelector(`tr[data-clip-id="${clip.id}"]`);
+    if (!tr) {
+      this.render();
+      return;
+    }
+
+    const { h: startH, m: startM } = this._splitHM(clip.start_time);
+    const { h: endH, m: endM } = this._splitHM(clip.end_time);
+    const duration = Math.max(0, clip.end_time - clip.start_time);
+
+    const inputStartH = tr.querySelector('.clip-start-h');
+    const inputStartM = tr.querySelector('.clip-start-m');
+    const inputEndH = tr.querySelector('.clip-end-h');
+    const inputEndM = tr.querySelector('.clip-end-m');
+    const durCell = tr.querySelector('.clip-duration-cell');
+
+    if (inputStartH && document.activeElement !== inputStartH) inputStartH.value = String(startH).padStart(2, '0');
+    if (inputStartM && document.activeElement !== inputStartM) inputStartM.value = String(startM).padStart(2, '0');
+    if (inputEndH && document.activeElement !== inputEndH) inputEndH.value = String(endH).padStart(2, '0');
+    if (inputEndM && document.activeElement !== inputEndM) inputEndM.value = String(endM).padStart(2, '0');
+    if (durCell) durCell.textContent = this._formatDurationHM(duration);
   }
 
   render() {
@@ -82,23 +106,40 @@ class ClipManager {
     this.clips.forEach((clip, index) => {
       const duration = Math.max(0, clip.end_time - clip.start_time);
       const isSelected = clip.id === this.activeClipId;
+      const { h: startH, m: startM } = this._splitHM(clip.start_time);
+      const { h: endH, m: endM } = this._splitHM(clip.end_time);
 
       const tr = document.createElement('tr');
+      tr.dataset.clipId = clip.id;
       if (isSelected) tr.style.backgroundColor = 'var(--bg-card)';
 
       tr.innerHTML = `
-        <td style="font-weight: 700; color: var(--text-muted); width: 40px;">${index + 1}</td>
+        <td style="font-weight: 700; color: var(--text-muted); width: 36px;">${index + 1}</td>
         <td>
           <input type="text" class="clip-name-input" value="${clip.name}" data-id="${clip.id}">
         </td>
-        <td style="font-family: var(--font-mono);">${this._formatTime(clip.start_time)}</td>
-        <td style="font-family: var(--font-mono);">${this._formatTime(clip.end_time)}</td>
-        <td style="font-family: var(--font-mono); color: var(--accent-orange); font-weight: 700;">
-          ${this._formatTime(duration)}
+        <td>
+          <div class="clip-time-group" title="Set start time (Hours & Minutes)">
+            <input type="number" min="0" max="99" class="clip-time-input clip-start-h" value="${String(startH).padStart(2, '0')}" data-id="${clip.id}">
+            <span class="clip-time-unit">h</span>
+            <input type="number" min="0" max="59" class="clip-time-input clip-start-m" value="${String(startM).padStart(2, '0')}" data-id="${clip.id}">
+            <span class="clip-time-unit">m</span>
+          </div>
+        </td>
+        <td>
+          <div class="clip-time-group" title="Set end time (Hours & Minutes)">
+            <input type="number" min="0" max="99" class="clip-time-input clip-end-h" value="${String(endH).padStart(2, '0')}" data-id="${clip.id}">
+            <span class="clip-time-unit">h</span>
+            <input type="number" min="0" max="59" class="clip-time-input clip-end-m" value="${String(endM).padStart(2, '0')}" data-id="${clip.id}">
+            <span class="clip-time-unit">m</span>
+          </div>
+        </td>
+        <td class="clip-duration-cell" style="font-family: var(--font-mono); color: var(--accent-orange); font-weight: 700; white-space: nowrap;">
+          ${this._formatDurationHM(duration)}
         </td>
         <td>
           <div style="display: flex; gap: 0.4rem; justify-content: flex-end;">
-            <button class="btn btn-secondary btn-sm btn-preview" data-id="${clip.id}" title="Preview selection">
+            <button class="btn btn-secondary btn-sm btn-preview" data-id="${clip.id}" title="Preview selection on video player">
               ▶ Preview
             </button>
             <button class="btn btn-primary btn-sm btn-export" data-id="${clip.id}" title="Export this clip">
@@ -124,6 +165,55 @@ class ClipManager {
         this.onListChange(this.clips, this.activeClipId);
       });
 
+      // Start Time (Hours & Minutes) handlers
+      const inStartH = tr.querySelector('.clip-start-h');
+      const inStartM = tr.querySelector('.clip-start-m');
+      const inEndH = tr.querySelector('.clip-end-h');
+      const inEndM = tr.querySelector('.clip-end-m');
+      const durCell = tr.querySelector('.clip-duration-cell');
+
+      const handleTimeChange = () => {
+        let sh = parseInt(inStartH.value, 10);
+        if (isNaN(sh) || sh < 0) sh = 0;
+        let sm = parseInt(inStartM.value, 10);
+        if (isNaN(sm) || sm < 0) sm = 0;
+        if (sm > 59) sm = 59;
+
+        let eh = parseInt(inEndH.value, 10);
+        if (isNaN(eh) || eh < 0) eh = 0;
+        let em = parseInt(inEndM.value, 10);
+        if (isNaN(em) || em < 0) em = 0;
+        if (em > 59) em = 59;
+
+        let newStart = sh * 3600 + sm * 60;
+        let newEnd = eh * 3600 + em * 60;
+
+        if (newEnd <= newStart) {
+          newEnd = newStart + 60; // minimum 1 minute
+          const { h: adjH, m: adjM } = this._splitHM(newEnd);
+          inEndH.value = String(adjH).padStart(2, '0');
+          inEndM.value = String(adjM).padStart(2, '0');
+        }
+
+        clip.start_time = newStart;
+        clip.end_time = newEnd;
+
+        durCell.textContent = this._formatDurationHM(newEnd - newStart);
+        this.onListChange(this.clips, this.activeClipId);
+        if (clip.id === this.activeClipId) {
+          this.onActiveChange(clip);
+        }
+      };
+
+      [inStartH, inStartM, inEndH, inEndM].forEach(inp => {
+        inp.addEventListener('input', handleTimeChange);
+        inp.addEventListener('blur', () => {
+          // Format with padded zeros
+          let v = parseInt(inp.value, 10) || 0;
+          inp.value = String(v).padStart(2, '0');
+        });
+      });
+
       tr.querySelector('.btn-preview').addEventListener('click', () => {
         this.setActiveClip(clip.id);
         this.onPreviewClip(clip);
@@ -140,6 +230,27 @@ class ClipManager {
 
       this.tableBody.appendChild(tr);
     });
+  }
+
+  _splitHM(seconds) {
+    const totalSec = Math.floor(seconds || 0);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    return { h, m };
+  }
+
+  _formatDurationHM(seconds) {
+    const totalSec = Math.floor(seconds || 0);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) {
+      return `${h}h ${m}m ${s > 0 ? `${s}s` : ''}`.trim();
+    }
+    if (m > 0) {
+      return `${m}m ${s > 0 ? `${s}s` : ''}`.trim();
+    }
+    return `${s}s`;
   }
 
   _formatTime(seconds) {

@@ -9,16 +9,21 @@ class TimelineEditor {
     this.rulerCanvas = document.getElementById('ruler-canvas');
     this.track = document.getElementById('timeline-track');
     this.playhead = document.getElementById('timeline-playhead');
+    this.hoverTooltip = document.getElementById('timeline-hover-tooltip');
+    this.tcCurrent = document.getElementById('timeline-current-tc');
+    this.tcTotal = document.getElementById('timeline-total-tc');
 
     this.totalDuration = 0;
     this.zoom = 1.0;
     this.currentTime = 0;
+    this.snappingEnabled = true;
 
     this.clips = [];
     this.activeClipId = null;
 
     this.onClipChange = options.onClipChange || (() => {});
     this.onSeek = options.onSeek || (() => {});
+    this.onSplit = options.onSplit || (() => {});
 
     this.ctx = this.rulerCanvas.getContext('2d');
     this._initEvents();
@@ -26,6 +31,9 @@ class TimelineEditor {
 
   setDuration(duration) {
     this.totalDuration = Math.max(1, duration);
+    if (this.tcTotal) {
+      this.tcTotal.textContent = this._formatTime(this.totalDuration);
+    }
     this.render();
   }
 
@@ -34,10 +42,26 @@ class TimelineEditor {
     this.render();
   }
 
+  fitToScreen() {
+    this.zoom = 1.0;
+    if (this.viewport) this.viewport.scrollLeft = 0;
+    this.render();
+  }
+
+  toggleSnapping() {
+    this.snappingEnabled = !this.snappingEnabled;
+    return this.snappingEnabled;
+  }
+
   setPlayheadTime(seconds) {
     this.currentTime = seconds;
     const px = this.timeToPixels(seconds);
-    this.playhead.style.left = `${px}px`;
+    if (this.playhead) {
+      this.playhead.style.left = `${px}px`;
+    }
+    if (this.tcCurrent) {
+      this.tcCurrent.textContent = this._formatTime(seconds);
+    }
   }
 
   setClips(clips, activeId) {
@@ -140,14 +164,14 @@ class TimelineEditor {
   }
 
   _formatTime(seconds) {
-    const totalSec = Math.floor(seconds);
+    const totalSec = Math.floor(seconds || 0);
     const h = Math.floor(totalSec / 3600);
     const m = Math.floor((totalSec % 3600) / 60);
     const s = totalSec % 60;
     if (h > 0) {
-      return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
 
   renderClipBars() {
@@ -158,7 +182,8 @@ class TimelineEditor {
     this.clips.forEach(clip => {
       const leftPx = this.timeToPixels(clip.start_time);
       const rightPx = this.timeToPixels(clip.end_time);
-      const barWidth = Math.max(16, rightPx - leftPx);
+      const barWidth = Math.max(24, rightPx - leftPx);
+      const duration = Math.max(0, clip.end_time - clip.start_time);
 
       const bar = document.createElement('div');
       bar.className = `clip-range-bar ${clip.id === this.activeClipId ? 'active' : ''}`;
@@ -166,15 +191,42 @@ class TimelineEditor {
       bar.style.left = `${leftPx}px`;
       bar.style.width = `${barWidth}px`;
 
+      // Professional VN / CapCut Filmstrip Card Architecture
       bar.innerHTML = `
-        <div class="range-handle handle-left" data-action="resize-left"></div>
-        <span class="range-label">${clip.name || 'Clip'}</span>
-        <div class="range-handle handle-right" data-action="resize-right"></div>
+        <div class="clip-filmstrip-header"></div>
+        <div class="range-handle handle-left" data-action="resize-left" title="Drag to trim start time"></div>
+        <div class="clip-card-body">
+          <span class="range-label">${clip.name || 'Clip'}</span>
+          <span class="range-duration-pill">${this._formatTime(duration)}</span>
+        </div>
+        <div class="range-handle handle-right" data-action="resize-right" title="Drag to trim end time"></div>
+        <div class="clip-filmstrip-footer"></div>
       `;
 
       this._bindClipDrag(bar, clip);
       this.track.appendChild(bar);
     });
+  }
+
+  _getSnapTarget(candidateTime, excludeClipId) {
+    if (!this.snappingEnabled) return candidateTime;
+
+    const snapDistanceSec = (8 / this.getTrackWidth()) * this.totalDuration; // ~8px snap radius
+    const targets = [0, this.currentTime, this.totalDuration];
+
+    this.clips.forEach(c => {
+      if (c.id !== excludeClipId) {
+        targets.push(c.start_time);
+        targets.push(c.end_time);
+      }
+    });
+
+    for (const target of targets) {
+      if (Math.abs(candidateTime - target) <= snapDistanceSec) {
+        return target;
+      }
+    }
+    return candidateTime;
   }
 
   _bindClipDrag(bar, clip) {
@@ -199,16 +251,19 @@ class TimelineEditor {
         const dt = (dx / this.getTrackWidth()) * this.totalDuration;
 
         if (action === 'resize-left') {
-          const newStart = Math.max(0, Math.min(initialEnd - 1.0, initialStart + dt));
+          let newStart = Math.max(0, Math.min(initialEnd - 1.0, initialStart + dt));
+          newStart = this._getSnapTarget(newStart, clip.id);
           clip.start_time = Math.round(newStart * 10) / 10;
         } else if (action === 'resize-right') {
-          const newEnd = Math.max(initialStart + 1.0, Math.min(this.totalDuration, initialEnd + dt));
+          let newEnd = Math.max(initialStart + 1.0, Math.min(this.totalDuration, initialEnd + dt));
+          newEnd = this._getSnapTarget(newEnd, clip.id);
           clip.end_time = Math.round(newEnd * 10) / 10;
         } else if (action === 'move') {
           const duration = initialEnd - initialStart;
           let newStart = initialStart + dt;
           if (newStart < 0) newStart = 0;
           if (newStart + duration > this.totalDuration) newStart = this.totalDuration - duration;
+          newStart = this._getSnapTarget(newStart, clip.id);
           clip.start_time = Math.round(newStart * 10) / 10;
           clip.end_time = Math.round((newStart + duration) * 10) / 10;
         }
@@ -230,8 +285,26 @@ class TimelineEditor {
     bar.addEventListener('pointerdown', onPointerDown);
   }
 
+  splitAtPlayhead() {
+    const current = this.currentTime;
+    // Find active clip or any clip that encompasses current playhead
+    let target = this.clips.find(c => c.id === this.activeClipId);
+    if (!target || current <= target.start_time + 1 || current >= target.end_time - 1) {
+      target = this.clips.find(c => current > c.start_time + 1 && current < c.end_time - 1);
+    }
+
+    if (!target) {
+      return null;
+    }
+
+    return {
+      originalClip: target,
+      splitTime: current
+    };
+  }
+
   _initEvents() {
-    // Scrubbing on ruler click / touch
+    // Scrubbing on ruler click / drag
     const handleSeek = (e) => {
       const rect = this.canvasContainer.getBoundingClientRect();
       const clickX = e.clientX - rect.left;
@@ -249,6 +322,24 @@ class TimelineEditor {
       };
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
+    });
+
+    // Precision Floating Hover Tooltip
+    this.viewport.addEventListener('mousemove', (e) => {
+      if (!this.hoverTooltip || this.totalDuration <= 0) return;
+      const rect = this.viewport.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left + this.viewport.scrollLeft;
+      const hoverTime = this.pixelsToTime(mouseX);
+
+      this.hoverTooltip.style.display = 'block';
+      this.hoverTooltip.style.left = `${mouseX}px`;
+      this.hoverTooltip.textContent = this._formatTime(hoverTime);
+    });
+
+    this.viewport.addEventListener('mouseleave', () => {
+      if (this.hoverTooltip) {
+        this.hoverTooltip.style.display = 'none';
+      }
     });
 
     // Horizontal wheel zoom / scroll

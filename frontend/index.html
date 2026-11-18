@@ -53,8 +53,8 @@
     <div class="editor-grid">
       
       <!-- Video Player Column -->
-      <section class="player-panel">
-        <div class="player-stage">
+      <section class="player-panel" id="player-panel">
+        <div class="player-stage" id="player-stage">
           <div id="yt-player-container"></div>
           <video id="html5-player" controls style="display: none;"></video>
           <div id="player-placeholder" class="player-placeholder">
@@ -62,6 +62,30 @@
               <polygon points="5 3 19 12 5 21 5 3"/>
             </svg>
             <p style="font-size: 0.95rem; font-weight: 500;">Enter a video link to preview</p>
+          </div>
+
+          <!-- Active Clip Preview Reflection HUD Overlay -->
+          <div id="player-preview-hud" class="player-preview-hud" style="display: none;">
+            <div class="hud-left">
+              <span class="hud-live-dot"></span>
+              <span class="hud-badge-title" id="hud-clip-title">PREVIEWING CLIP 1</span>
+            </div>
+            <div class="hud-center">
+              <span class="hud-time-tag" id="hud-time-start">00h 00m</span>
+              <span class="hud-arrow">➔</span>
+              <span class="hud-time-tag" id="hud-time-end">00h 02m</span>
+              <span class="hud-duration-tag" id="hud-duration-text">(2m 00s)</span>
+            </div>
+            <div class="hud-progress-wrapper">
+              <div id="hud-progress-fill" class="hud-progress-fill"></div>
+            </div>
+            <button id="btn-hud-stop" class="btn-hud-stop" title="Exit Preview">✕</button>
+          </div>
+
+          <!-- Floating PiP Indicator Badge -->
+          <div id="pip-badge" class="pip-badge" style="display: none;">
+            <span>📌 Mini-Dock Active</span>
+            <button id="btn-pip-restore" title="Restore to main stage">▲</button>
           </div>
         </div>
 
@@ -152,31 +176,54 @@
       </section>
     </div>
 
-    <!-- Visual Multi-Clip Timeline Section -->
+    <!-- Visual Multi-Clip Timeline Section (Professional DAW / NLE Editor) -->
     <section class="timeline-panel">
       <div class="timeline-header">
-        <div class="panel-section-title">
-          <span>Multi-Clip Timeline Editor</span>
+        <div class="timeline-header-left">
+          <div class="panel-section-title" style="margin: 0;">
+            <span>Multi-Clip Timeline Editor</span>
+          </div>
+          <!-- Real-Time Timecode Display HUD -->
+          <div class="timeline-timecode-hud">
+            <span id="timeline-current-tc" class="tc-current">00:00:00</span>
+            <span class="tc-divider">/</span>
+            <span id="timeline-total-tc" class="tc-total">00:00:00</span>
+          </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <span style="font-size: 0.75rem; color: var(--text-muted);">Zoom:</span>
-          <button id="btn-zoom-out" class="btn btn-secondary btn-sm">−</button>
-          <button id="btn-zoom-reset" class="btn btn-secondary btn-sm">1x</button>
-          <button id="btn-zoom-in" class="btn btn-secondary btn-sm">+</button>
-          <button id="btn-add-clip" class="btn btn-primary btn-sm" style="margin-left: 0.75rem;">+ Add Clip</button>
+
+        <!-- Professional NLE Action Toolbar -->
+        <div class="timeline-toolbar">
+          <button id="btn-split-clip" class="btn btn-secondary btn-sm" title="Split active clip at playhead (VN style)">
+            ✂️ Split
+          </button>
+          <button id="btn-toggle-snap" class="btn btn-secondary btn-sm btn-snap active" title="Toggle magnetic snapping">
+            🧲 Snap: ON
+          </button>
+          <button id="btn-fit-screen" class="btn btn-secondary btn-sm" title="Fit entire stream timeline to screen width">
+            ⤢ Fit
+          </button>
+          <div class="timeline-zoom-group">
+            <button id="btn-zoom-out" class="btn btn-secondary btn-sm" title="Zoom out">−</button>
+            <button id="btn-zoom-reset" class="btn btn-secondary btn-sm" title="Reset zoom">1x</button>
+            <button id="btn-zoom-in" class="btn btn-secondary btn-sm" title="Zoom in">+</button>
+          </div>
+          <button id="btn-add-clip" class="btn btn-primary btn-sm" title="Add new clip selection">+ Add Clip</button>
         </div>
       </div>
 
       <!-- Viewport & Tracks -->
       <div id="timeline-viewport" class="timeline-viewport">
+        <!-- Floating Hover Tooltip -->
+        <div id="timeline-hover-tooltip" class="timeline-hover-tooltip" style="display: none;">00:00:00</div>
         <div id="timeline-canvas-container" class="timeline-canvas-container">
           <canvas id="ruler-canvas"></canvas>
           <div id="timeline-track" class="timeline-track">
             <!-- Active range bars are injected dynamically -->
           </div>
-          <!-- Real-time Playhead -->
+          <!-- Real-time Playhead with Diamond Needle -->
           <div id="timeline-playhead" class="timeline-playhead">
-            <div class="playhead-handle"></div>
+            <div class="playhead-needle-cap"></div>
+            <div class="playhead-line"></div>
           </div>
         </div>
       </div>
@@ -260,10 +307,10 @@
   </div>
 
   <!-- Application Scripts -->
-  <script src="/js/api.js?v=2.1.0"></script>
-  <script src="/js/player.js?v=2.1.0"></script>
-  <script src="/js/timeline.js?v=2.1.0"></script>
-  <script src="/js/clips.js?v=2.1.0"></script>
-  <script src="/js/app.js?v=2.1.0"></script>
+  <script src="/js/api.js?v=2.2.0"></script>
+  <script src="/js/player.js?v=2.2.0"></script>
+  <script src="/js/timeline.js?v=2.2.0"></script>
+  <script src="/js/clips.js?v=2.2.0"></script>
+  <script src="/js/app.js?v=2.2.0"></script>
 </body>
 </html>

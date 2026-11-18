@@ -21,6 +21,23 @@ class VideoPlayerController {
 
     this.isYouTubeApiLoaded = false;
     this.pendingVideoId = null;
+
+    // Reflection Preview HUD Elements
+    this.previewHud = document.getElementById('player-preview-hud');
+    this.hudTitle = document.getElementById('hud-clip-title');
+    this.hudStart = document.getElementById('hud-time-start');
+    this.hudEnd = document.getElementById('hud-time-end');
+    this.hudDur = document.getElementById('hud-duration-text');
+    this.hudFill = document.getElementById('hud-progress-fill');
+    this.btnHudStop = document.getElementById('btn-hud-stop');
+
+    if (this.btnHudStop) {
+      this.btnHudStop.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.stopPreview();
+      });
+    }
+
     this._initYouTubeAPI();
   }
 
@@ -207,12 +224,42 @@ class VideoPlayerController {
     return this.duration;
   }
 
-  previewRange(startSec, endSec) {
-    this.previewStart = startSec;
-    this.previewEnd = endSec;
+  previewRange(startSec, endSec, clipName = 'Selection') {
+    this.previewStart = Math.max(0, startSec);
+    this.previewEnd = Math.max(this.previewStart + 0.5, endSec);
     this.previewActive = true;
-    this.seekTo(startSec);
+
+    // Update Player Reflection HUD Overlay
+    if (this.previewHud) {
+      if (this.hudTitle) this.hudTitle.textContent = `PREVIEWING: ${clipName || 'Selection'}`;
+      if (this.hudStart) this.hudStart.textContent = this._formatHM(this.previewStart);
+      if (this.hudEnd) this.hudEnd.textContent = this._formatHM(this.previewEnd);
+      if (this.hudDur) this.hudDur.textContent = `(${this._formatHM(this.previewEnd - this.previewStart)})`;
+      if (this.hudFill) this.hudFill.style.width = '0%';
+      this.previewHud.style.display = 'flex';
+    }
+
+    this.seekTo(this.previewStart);
     this.play();
+  }
+
+  stopPreview() {
+    this.previewActive = false;
+    if (this.previewHud) {
+      this.previewHud.style.display = 'none';
+    }
+    this.pause();
+  }
+
+  _formatHM(seconds) {
+    const totalSec = Math.floor(seconds || 0);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) {
+      return `${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m`;
+    }
+    return `${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
   }
 
   onTimeUpdate(callback) {
@@ -254,11 +301,26 @@ class VideoPlayerController {
     this.currentTime = time;
     this._broadcastTime(time);
 
-    // Enforce preview boundaries
-    if (this.previewActive && time >= this.previewEnd) {
-      this.pause();
-      this.seekTo(this.previewStart);
-      this.previewActive = false;
+    // Enforce preview boundaries & animate progress fill
+    if (this.previewActive) {
+      const range = Math.max(0.1, this.previewEnd - this.previewStart);
+      const elapsed = Math.max(0, time - this.previewStart);
+      const pct = Math.min(100, Math.max(0, (elapsed / range) * 100));
+
+      if (this.hudFill) {
+        this.hudFill.style.width = `${pct}%`;
+      }
+
+      if (time >= this.previewEnd) {
+        this.pause();
+        this.seekTo(this.previewStart);
+        if (this.hudFill) this.hudFill.style.width = '100%';
+        setTimeout(() => {
+          if (this.previewActive) {
+            this.stopPreview();
+          }
+        }, 300);
+      }
     }
   }
 

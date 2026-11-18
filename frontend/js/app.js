@@ -107,7 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
       timeline.setClips(clips, activeId);
     },
     onPreviewClip: (clip) => {
-      player.previewRange(clip.start_time, clip.end_time);
+      player.previewRange(clip.start_time, clip.end_time, clip.name);
     },
     onExportSingle: (clip) => {
       triggerSingleExport(clip);
@@ -353,13 +353,83 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // "Preview Clip"
+  // "Preview Clip" with active HUD reflection
   btnPreviewClip.addEventListener('click', () => {
     const active = clipManager.getActiveClip();
     if (active) {
-      player.previewRange(active.start_time, active.end_time);
+      player.previewRange(active.start_time, active.end_time, active.name);
     }
   });
+
+  // Professional NLE Timeline Toolbar Controls (VN Style)
+  const btnSplitClip = document.getElementById('btn-split-clip');
+  const btnToggleSnap = document.getElementById('btn-toggle-snap');
+  const btnFitScreen = document.getElementById('btn-fit-screen');
+
+  if (btnSplitClip) {
+    btnSplitClip.addEventListener('click', () => {
+      const splitResult = timeline.splitAtPlayhead();
+      if (!splitResult) {
+        showToast("Position playhead inside a clip to split.", "warning");
+        return;
+      }
+      const orig = splitResult.originalClip;
+      const oldEnd = orig.end_time;
+      const splitSec = Math.round(splitResult.splitTime);
+
+      orig.end_time = splitSec;
+      const newClip = clipManager.addClip(splitSec, oldEnd, `${orig.name} (Part 2)`);
+      clipManager.render();
+      timeline.setClips(clipManager.clips, newClip.id);
+      syncInputsFromClip(newClip);
+      showToast(`✂️ Split into ${orig.name} & ${newClip.name}`, "success");
+    });
+  }
+
+  if (btnToggleSnap) {
+    btnToggleSnap.addEventListener('click', () => {
+      const isSnap = timeline.toggleSnapping();
+      btnToggleSnap.textContent = isSnap ? "🧲 Snap: ON" : "🧲 Snap: OFF";
+      btnToggleSnap.classList.toggle('active', isSnap);
+      showToast(`Magnetic Snapping ${isSnap ? "Enabled" : "Disabled"}`, "info");
+    });
+  }
+
+  if (btnFitScreen) {
+    btnFitScreen.addEventListener('click', () => {
+      timeline.fitToScreen();
+      showToast("Fitted timeline to view.", "info");
+    });
+  }
+
+  // Persistent Player / Floating Mini-Dock on Deep Scroll
+  const playerPanel = document.getElementById('player-panel');
+  const playerStage = document.getElementById('player-stage');
+  const pipBadge = document.getElementById('pip-badge');
+  const btnPipRestore = document.getElementById('btn-pip-restore');
+
+  let isDocked = false;
+  window.addEventListener('scroll', () => {
+    if (!playerPanel || !playerStage) return;
+    const rect = playerPanel.getBoundingClientRect();
+    // When the top section has scrolled well past the viewport top
+    if (rect.bottom < 80 && !isDocked) {
+      isDocked = true;
+      playerStage.classList.add('is-floating-docked');
+      if (pipBadge) pipBadge.style.display = 'flex';
+    } else if (rect.bottom >= 80 && isDocked) {
+      isDocked = false;
+      playerStage.classList.remove('is-floating-docked');
+      if (pipBadge) pipBadge.style.display = 'none';
+    }
+  }, { passive: true });
+
+  if (btnPipRestore) {
+    btnPipRestore.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
 
   // Numerical inputs change handlers with validation
   const timeInputs = [startH, startM, startS, endH, endM, endS];
@@ -428,6 +498,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnPreviewClip.disabled = false;
 
     updateDurationBadge(clip.end_time - clip.start_time);
+    clipManager.syncInputsForClip(clip);
   }
 
   function updateDurationBadge(durationSec) {
