@@ -94,26 +94,38 @@ class VideoProcessor:
             best_audio = None
 
         last_error = None
-        # Try candidate formats in priority order; if a format gets 403 Forbidden, automatically try the next candidate
+        # Try candidate formats in priority order
         for v_fmt in candidates:
             has_embedded_audio = bool(v_fmt.get('acodec') and v_fmt.get('acodec') != 'none')
             a_fmt = None if has_embedded_audio else best_audio
 
+            is_fragmented = bool(
+                v_fmt.get('protocol') == 'http_dash_segments'
+                or v_fmt.get('fragments')
+            )
+            has_frags = bool(v_fmt.get('fragments'))
+            print(f"[VideoProcessor] Candidate format {v_fmt.get('format_id')} (protocol={v_fmt.get('protocol')}, fragmented={is_fragmented}, has_frags={has_frags})...", flush=True)
+
             try:
-                return self._process_direct_stream(
-                    v_fmt, a_fmt, clip, output_path, mode, progress_callback
-                )
+                if is_fragmented and has_frags:
+                    return self._process_livestream_fragments(
+                        v_fmt, a_fmt, clip, output_path, mode, raw_info, progress_callback
+                    )
+                elif not is_fragmented:
+                    return self._process_direct_stream(
+                        v_fmt, a_fmt, clip, output_path, mode, progress_callback
+                    )
+                else:
+                    print(f"[VideoProcessor] Skipping fragmented format {v_fmt.get('format_id')} without fragments...", flush=True)
+                    continue
             except Exception as e:
                 last_error = e
                 err_str = str(e)
-                if "403 Forbidden" in err_str or "Server returned 403" in err_str:
-                    print(f"[VideoProcessor] Candidate format {v_fmt.get('format_id')} failed with 403, trying next candidate...", flush=True)
-                    continue
-                else:
-                    raise
+                print(f"[VideoProcessor] Candidate format {v_fmt.get('format_id')} failed: {err_str[:250]}, trying next candidate...", flush=True)
+                continue
 
-        # If all candidates threw 403 or errors, try fragment fallback if present
-        if (candidates[0].get('protocol') == 'http_dash_segments' or 'fragments' in candidates[0]) and best_audio:
+        # If candidates loop finished without success, try fragment fallback on first candidate if fragments exist
+        if (candidates[0].get('protocol') == 'http_dash_segments' or 'fragments' in candidates[0]) and candidates[0].get('fragments'):
             try:
                 return self._process_livestream_fragments(
                     candidates[0], best_audio, clip, output_path, mode, raw_info, progress_callback
@@ -128,7 +140,7 @@ class VideoProcessor:
     def _process_livestream_fragments(
         self,
         v_fmt: Dict[str, Any],
-        a_fmt: Dict[str, Any],
+        a_fmt: Optional[Dict[str, Any]],
         clip: ClipRange,
         output_path: Path,
         mode: str,
@@ -143,9 +155,12 @@ class VideoProcessor:
             progress_callback(20, "Calculating fragment sequence ranges...")
 
         # Calculate exact fragment duration dynamically
-        v_frags = len(v_fmt.get('fragments') or [])
+        v_frags_list = v_fmt.get('fragments') or []
+        a_frags_list = (a_fmt.get('fragments') if a_fmt else []) or []
+
+        v_count = len(v_frags_list)
         total_dur = float(raw_info.get('duration') or 0.0)
-        target_dur = float(v_fmt.get('target_duration') or (total_dur / v_frags if v_frags > 0 and total_dur > 0 else 5.0))
+        target_dur = float(v_fmt.get('target_duration') or (total_dur / v_count if v_count > 0 and total_dur > 0 else 5.0))
         if target_dur <= 0:
             target_dur = 5.0
 
@@ -153,27 +168,46 @@ class VideoProcessor:
         end_sec = min(total_dur or 999999.0, float(clip.end_time))
         clip_duration = max(0.1, end_sec - start_sec)
 
-        sq_start = int(start_sec // target_dur)
+        sq_start = max(0, int(start_sec // target_dur))
         sq_end = int(end_sec // target_dur)
+        if v_count > 0:
+            sq_end = min(sq_end, v_count - 1)
 
         # Temp working folder for this clip with clean ASCII identifier
         session_temp = TEMP_DIR / f"clip_{uuid.uuid4().hex[:8]}_{int(time.time())}"
         session_temp.mkdir(parents=True, exist_ok=True)
 
-        v_base = v_fmt['url']
-        a_base = a_fmt['url']
+        v_base = v_fmt.get('url', '')
+        a_base = a_fmt.get('url', '') if a_fmt else ''
 
-        v_tasks = [(f"{v_base}&sq={sq}", session_temp / f"v_{sq}.mp4") for sq in range(sq_start, sq_end + 1)]
-        a_tasks = [(f"{a_base}&sq={sq}", session_temp / f"a_{sq}.m4a") for sq in range(sq_start, sq_end + 1)]
+        v_tasks = []
+        for sq in range(sq_start, sq_end + 1):
+            if sq < len(v_frags_list) and v_frags_list[sq].get('url'):
+                url = v_frags_list[sq]['url']
+            else:
+                url = f"{v_base}&sq={sq}" if v_base else ""
+            if url:
+                v_tasks.append((url, session_temp / f"v_{sq}.mp4"))
+
+        a_tasks = []
+        if a_fmt:
+            for sq in range(sq_start, sq_end + 1):
+                if sq < len(a_frags_list) and a_frags_list[sq].get('url'):
+                    url = a_frags_list[sq]['url']
+                else:
+                    url = f"{a_base}&sq={sq}" if a_base else ""
+                if url:
+                    a_tasks.append((url, session_temp / f"a_{sq}.m4a"))
+
         all_tasks = v_tasks + a_tasks
 
         if progress_callback:
             progress_callback(35, f"Downloading {len(v_tasks)} video chunks & {len(a_tasks)} audio chunks in parallel...")
 
-        chunk_headers = dict(v_fmt.get('http_headers') or {
+        chunk_headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
             'Accept': '*/*'
-        })
+        }
         cookie_file = Path("cookies.txt")
         if cookie_file.exists() and cookie_file.stat().st_size > 10:
             try:
@@ -190,10 +224,18 @@ class VideoProcessor:
 
         def fetch_chunk(item):
             url, dest = item
-            req = urllib.request.Request(url, headers=chunk_headers)
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                with open(dest, 'wb') as f:
-                    f.write(resp.read())
+            for attempt in range(3):
+                try:
+                    req = urllib.request.Request(url, headers=chunk_headers)
+                    with urllib.request.urlopen(req, timeout=15) as resp:
+                        with open(dest, 'wb') as f:
+                            f.write(resp.read())
+                    return dest
+                except Exception as ex:
+                    if attempt == 2:
+                        print(f"[fetch_chunk ERROR] dest={dest.name}, url={url}, err={ex}", flush=True)
+                        raise
+                    time.sleep(0.5)
             return dest
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
@@ -204,31 +246,46 @@ class VideoProcessor:
 
         # Build concat lists with duration directives using absolute forward-slash paths
         v_list = session_temp / "v_list.txt"
-        a_list = session_temp / "a_list.txt"
-
         with open(v_list, 'w', encoding='utf-8') as f:
             for _, p in v_tasks:
                 abs_p = str(p.resolve()).replace('\\', '/')
                 f.write(f"file '{abs_p}'\n")
                 f.write(f"duration {target_dur:.6f}\n")
 
-        with open(a_list, 'w', encoding='utf-8') as f:
-            for _, p in a_tasks:
-                abs_p = str(p.resolve()).replace('\\', '/')
-                f.write(f"file '{abs_p}'\n")
-                f.write(f"duration {target_dur:.6f}\n")
+        a_list = session_temp / "a_list.txt"
+        if a_tasks:
+            with open(a_list, 'w', encoding='utf-8') as f:
+                for _, p in a_tasks:
+                    abs_p = str(p.resolve()).replace('\\', '/')
+                    f.write(f"file '{abs_p}'\n")
+                    f.write(f"duration {target_dur:.6f}\n")
 
         # Offset within the first fragment
         first_frag_start = sq_start * target_dur
         offset_in_first_frag = max(0.0, start_sec - first_frag_start)
 
+        # Make sure output path parent directory exists and is absolute
+        output_path = Path(output_path).resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
         cmd = [
             'ffmpeg', '-y',
-            '-f', 'concat', '-safe', '0', '-i', str(v_list),
-            '-f', 'concat', '-safe', '0', '-i', str(a_list),
+            '-f', 'concat', '-safe', '0', '-i', str(v_list.resolve()),
+        ]
+        if a_tasks:
+            cmd.extend([
+                '-f', 'concat', '-safe', '0', '-i', str(a_list.resolve()),
+            ])
+
+        cmd.extend([
             '-ss', f"{offset_in_first_frag:.4f}",
             '-t', f"{clip_duration:.4f}",
-        ]
+        ])
+
+        if a_tasks:
+            cmd.extend(['-map', '0:v:0', '-map', '1:a:0?'])
+        else:
+            cmd.extend(['-map', '0:v:0', '-map', '0:a?'])
 
         # Use fast stream copy only if aligned to fragment keyframe boundary.
         # Otherwise, use visually lossless CRF 18 veryfast to prevent dropped frames & desync.
@@ -252,8 +309,10 @@ class VideoProcessor:
                 str(output_path)
             ])
 
-        res = subprocess.run(cmd, cwd=str(session_temp), capture_output=True, text=True)
+        print(f"[FFmpeg Fragment CMD]: {' '.join(cmd)}", flush=True)
+        res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode != 0:
+            print(f"[FFmpeg STDERR]:\n{res.stderr}", flush=True)
             raise RuntimeError(f"FFmpeg processing failed: {res.stderr[-400:]}")
 
         # Cleanup temp chunks
@@ -285,6 +344,8 @@ class VideoProcessor:
         if progress_callback:
             progress_callback(30, "Seeking remote HTTP video stream with FFmpeg...")
 
+        output_path = Path(output_path).resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         start_str = str(clip.start_time)
         end_str = str(clip.end_time)
 

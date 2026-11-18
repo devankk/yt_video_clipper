@@ -50,7 +50,21 @@ def run_clip_export(job_id: str, url: str, video_id: Optional[str], clip, mode: 
         def progress_cb(pct: int, msg: str):
             job.update(pct, msg)
 
-        processor.process_clip(raw_info, clip, out_file, mode=mode, quality=quality, progress_callback=progress_cb)
+        try:
+            processor.process_clip(raw_info, clip, out_file, mode=mode, quality=quality, progress_callback=progress_cb)
+        except Exception as e:
+            err_str = str(e)
+            if "403" in err_str or "Forbidden" in err_str or "I/O error" in err_str or "stream seeking failed" in err_str:
+                print(f"[run_clip_export] Stream request failed ({err_str[:120]}). Invalidating cache and retrying with fresh metadata...", flush=True)
+                clean_id = extract_video_id(video_id or url)
+                if clean_id:
+                    extractor.invalidate_cache(clean_id)
+                extractor.invalidate_cache(url)
+                target_url = f"https://www.youtube.com/watch?v={clean_id}" if clean_id else url
+                _, fresh_raw_info = extractor.get_video_info(target_url)
+                processor.process_clip(fresh_raw_info, clip, out_file, mode=mode, quality=quality, progress_callback=progress_cb)
+            else:
+                raise
 
         file_size = out_file.stat().st_size if out_file.exists() else 0
         duration = clip.end_time - clip.start_time
@@ -99,9 +113,25 @@ def run_batch_export(job_id: str, url: str, video_id: Optional[str], clips: list
         def batch_progress_cb(pct: int, msg: str, curr: int, total: int):
             job.update(pct, msg)
 
-        exported_files, zip_path = processor.process_batch(
-            raw_info, clips, title, mode=mode, quality=quality, progress_callback=batch_progress_cb
-        )
+        try:
+            exported_files, zip_path = processor.process_batch(
+                raw_info, clips, title, mode=mode, quality=quality, progress_callback=batch_progress_cb
+            )
+        except Exception as e:
+            err_str = str(e)
+            if "403" in err_str or "Forbidden" in err_str or "I/O error" in err_str or "stream seeking failed" in err_str:
+                print(f"[run_batch_export] Stream request failed ({err_str[:120]}). Invalidating cache and retrying with fresh metadata...", flush=True)
+                clean_id = extract_video_id(video_id or url)
+                if clean_id:
+                    extractor.invalidate_cache(clean_id)
+                extractor.invalidate_cache(url)
+                target_url = f"https://www.youtube.com/watch?v={clean_id}" if clean_id else url
+                _, fresh_raw_info = extractor.get_video_info(target_url)
+                exported_files, zip_path = processor.process_batch(
+                    fresh_raw_info, clips, title, mode=mode, quality=quality, progress_callback=batch_progress_cb
+                )
+            else:
+                raise
 
         zip_size = zip_path.stat().st_size if zip_path.exists() else 0
         job.complete(

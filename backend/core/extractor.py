@@ -154,9 +154,17 @@ class YouTubeExtractor:
         clean_id = extract_video_id(url_or_id)
         if clean_id in self._cache:
             cache_time, info = self._cache[clean_id]
-            if time.time() - cache_time < METADATA_CACHE_TTL:
+            is_live_stream = info.get('live_status') in ('is_live', 'post_live') or any('fragments' in f for f in (info.get('formats') or []))
+            # Live stream signed URLs have short-lived tokens and rotate quickly; cap TTL to 180s
+            ttl = 180 if is_live_stream else METADATA_CACHE_TTL
+            if time.time() - cache_time < ttl:
                 return info
         return None
+
+    def invalidate_cache(self, url_or_id: str) -> None:
+        clean_id = extract_video_id(url_or_id)
+        self._cache.pop(clean_id, None)
+        self._cache.pop(url_or_id, None)
 
     def _parse_info(self, info: Dict[str, Any]) -> VideoInfoResponse:
         video_id = info.get('id', '')
