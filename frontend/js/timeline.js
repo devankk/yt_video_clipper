@@ -26,6 +26,7 @@ class TimelineEditor {
     this.onSeek = options.onSeek || (() => {});
     this.onSplit = options.onSplit || (() => {});
     this.onClipAction = options.onClipAction || (() => {});
+    this.getPreviewBounds = options.getPreviewBounds || (() => null);
 
     this.ctx = this.rulerCanvas.getContext('2d');
     this.contextMenu = null;
@@ -421,7 +422,14 @@ class TimelineEditor {
     const handleSeek = (e) => {
       const rect = this.canvasContainer.getBoundingClientRect();
       const clickX = e.clientX - rect.left;
-      const targetTime = this.pixelsToTime(clickX);
+      let targetTime = this.pixelsToTime(clickX);
+
+      // Restrict scrubbing strictly inside clip boundaries when preview is active
+      const bounds = this.getPreviewBounds();
+      if (bounds && typeof bounds.start === 'number' && typeof bounds.end === 'number') {
+        targetTime = Math.max(bounds.start, Math.min(bounds.end, targetTime));
+      }
+
       this.setPlayheadTime(targetTime);
       this.onSeek(targetTime);
     };

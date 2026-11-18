@@ -127,6 +127,12 @@ class VideoPlayerController {
               // YT.PlayerState: PLAYING=1, PAUSED=2, ENDED=0, BUFFERING=3
               if (event.data === 1) {
                 this.isPlaying = true;
+                if (this.previewActive) {
+                  const t = this.getCurrentTime();
+                  if (t < this.previewStart - 0.25 || t >= this.previewEnd) {
+                    this.seekTo(this.previewStart);
+                  }
+                }
               } else if (event.data === 2 || event.data === 0) {
                 this.isPlaying = false;
               }
@@ -166,7 +172,11 @@ class VideoPlayerController {
   }
 
   seekTo(seconds) {
-    const clamped = Math.max(0, Math.min(this.duration || 999999, seconds));
+    let target = seconds;
+    if (this.previewActive) {
+      target = Math.max(this.previewStart, Math.min(this.previewEnd, target));
+    }
+    const clamped = Math.max(0, Math.min(this.duration || 999999, target));
     if (this.isYouTube && this.ytPlayer && typeof this.ytPlayer.seekTo === 'function') {
       try {
         this.ytPlayer.seekTo(clamped, true);
@@ -182,6 +192,12 @@ class VideoPlayerController {
 
   play() {
     this.isPlaying = true;
+    if (this.previewActive) {
+      const cur = this.getCurrentTime();
+      if (cur >= this.previewEnd - 0.2 || cur < this.previewStart) {
+        this.seekTo(this.previewStart);
+      }
+    }
     if (this.isYouTube && this.ytPlayer && typeof this.ytPlayer.playVideo === 'function') {
       try {
         this.ytPlayer.playVideo();
@@ -204,7 +220,6 @@ class VideoPlayerController {
     } else if (!this.isYouTube && this.html5Player) {
       this.html5Player.pause();
     }
-    this.previewActive = false;
   }
 
   togglePlay() {
@@ -315,11 +330,25 @@ class VideoPlayerController {
   }
 
   _onTick(time) {
-    this.currentTime = time;
-    this._broadcastTime(time);
-
-    // Enforce preview boundaries & animate progress fill
+    // Strict preview boundary enforcement
     if (this.previewActive) {
+      // Prevent player from wandering before the clip's start point
+      if (time < this.previewStart - 0.25) {
+        this.seekTo(this.previewStart);
+        return;
+      }
+
+      // Prevent player from advancing ahead of the clip's end point
+      if (time >= this.previewEnd) {
+        this.pause();
+        this.seekTo(this.previewEnd);
+        if (this.hudFill) this.hudFill.style.width = '100%';
+        this.currentTime = this.previewEnd;
+        this._broadcastTime(this.previewEnd);
+        return;
+      }
+
+      // Live progress within the clip time zone
       const range = Math.max(0.1, this.previewEnd - this.previewStart);
       const elapsed = Math.max(0, time - this.previewStart);
       const pct = Math.min(100, Math.max(0, (elapsed / range) * 100));
@@ -327,18 +356,10 @@ class VideoPlayerController {
       if (this.hudFill) {
         this.hudFill.style.width = `${pct}%`;
       }
-
-      if (time >= this.previewEnd) {
-        this.pause();
-        this.seekTo(this.previewStart);
-        if (this.hudFill) this.hudFill.style.width = '100%';
-        setTimeout(() => {
-          if (this.previewActive) {
-            this.stopPreview();
-          }
-        }, 300);
-      }
     }
+
+    this.currentTime = time;
+    this._broadcastTime(time);
   }
 
   _broadcastTime(time) {

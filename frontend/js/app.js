@@ -114,6 +114,12 @@ document.addEventListener('DOMContentLoaded', () => {
     },
     onClipAction: (action, clip, cursorTime) => {
       handleTimelineClipAction(action, clip, cursorTime);
+    },
+    getPreviewBounds: () => {
+      if (player.previewActive) {
+        return { start: player.previewStart, end: player.previewEnd };
+      }
+      return null;
     }
   });
 
