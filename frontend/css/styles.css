@@ -390,19 +390,56 @@ body {
 }
 
 .hud-progress-wrapper {
+  position: relative;
   width: 100%;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.15);
+  height: 8px;
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 999px;
-  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  user-select: none;
+  touch-action: none;
+  transition: height 150ms ease, background 150ms ease;
+  margin-top: 4px;
+}
+
+.hud-progress-wrapper:hover,
+.hud-progress-wrapper.is-dragging {
+  height: 10px;
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .hud-progress-fill {
   width: 0%;
   height: 100%;
   background: linear-gradient(90deg, #ff6b00, #ff944d);
-  box-shadow: 0 0 8px #ff6b00;
-  transition: width 60ms linear;
+  box-shadow: 0 0 10px #ff6b00;
+  border-radius: 999px;
+  pointer-events: none;
+  transition: width 40ms linear;
+}
+
+.hud-progress-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  transform: translate(-50%, -50%);
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border: 2.5px solid #ff6b00;
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(255, 107, 0, 0.9), 0 2px 6px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.hud-progress-wrapper:hover .hud-progress-thumb,
+.hud-progress-wrapper.is-dragging .hud-progress-thumb {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.15);
 }
 
 .btn-hud-stop {

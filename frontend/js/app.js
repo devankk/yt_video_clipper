@@ -148,9 +148,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Sync playhead and auto-follow during playback
+  // Sync playhead and auto-follow during playback or HUD scrubbing
   player.onTimeUpdate((currentTime) => {
-    timeline.setPlayheadTime(currentTime, player.isPlaying);
+    timeline.setPlayheadTime(currentTime, player.isPlaying || player.isHudDragging);
   });
 
   // Dynamic duration synchronization from player

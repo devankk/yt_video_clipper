@@ -30,7 +30,10 @@ class VideoPlayerController {
     this.hudEnd = document.getElementById('hud-time-end');
     this.hudDur = document.getElementById('hud-duration-text');
     this.hudFill = document.getElementById('hud-progress-fill');
+    this.hudWrapper = document.getElementById('hud-progress-wrapper');
+    this.hudThumb = document.getElementById('hud-progress-thumb');
     this.btnHudStop = document.getElementById('btn-hud-stop');
+    this.isHudDragging = false;
 
     if (this.btnHudStop) {
       this.btnHudStop.addEventListener('click', (e) => {
@@ -39,7 +42,61 @@ class VideoPlayerController {
       });
     }
 
+    this._initHudScrubber();
     this._initYouTubeAPI();
+  }
+
+  _initHudScrubber() {
+    if (!this.hudWrapper) return;
+
+    const seekFromPointer = (e) => {
+      if (!this.previewActive) return;
+      const rect = this.hudWrapper.getBoundingClientRect();
+      if (!rect.width) return;
+
+      const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const range = Math.max(0.1, this.previewEnd - this.previewStart);
+      const targetTime = this.previewStart + (frac * range);
+
+      // Instant UI response for smooth feeling
+      const pct = frac * 100;
+      if (this.hudFill) this.hudFill.style.width = `${pct}%`;
+      if (this.hudThumb) this.hudThumb.style.left = `${pct}%`;
+
+      // Seek video & broadcast to timeline playhead
+      this.seekTo(targetTime);
+    };
+
+    this.hudWrapper.addEventListener('pointerdown', (e) => {
+      if (!this.previewActive) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.isHudDragging = true;
+      this.hudWrapper.classList.add('is-dragging');
+      try {
+        this.hudWrapper.setPointerCapture(e.pointerId);
+      } catch (err) {}
+      seekFromPointer(e);
+    });
+
+    this.hudWrapper.addEventListener('pointermove', (e) => {
+      if (!this.isHudDragging) return;
+      e.preventDefault();
+      e.stopPropagation();
+      seekFromPointer(e);
+    });
+
+    const endDrag = (e) => {
+      if (!this.isHudDragging) return;
+      this.isHudDragging = false;
+      this.hudWrapper.classList.remove('is-dragging');
+      try {
+        this.hudWrapper.releasePointerCapture(e.pointerId);
+      } catch (err) {}
+    };
+
+    this.hudWrapper.addEventListener('pointerup', endDrag);
+    this.hudWrapper.addEventListener('pointercancel', endDrag);
   }
 
   _initYouTubeAPI() {
@@ -187,6 +244,15 @@ class VideoPlayerController {
       this.html5Player.currentTime = clamped;
     }
     this.currentTime = clamped;
+
+    if (this.previewActive) {
+      const range = Math.max(0.1, this.previewEnd - this.previewStart);
+      const elapsed = Math.max(0, clamped - this.previewStart);
+      const pct = Math.min(100, Math.max(0, (elapsed / range) * 100));
+      if (this.hudFill) this.hudFill.style.width = `${pct}%`;
+      if (this.hudThumb) this.hudThumb.style.left = `${pct}%`;
+    }
+
     this._broadcastTime(clamped);
   }
 
@@ -268,6 +334,7 @@ class VideoPlayerController {
       if (this.hudEnd) this.hudEnd.textContent = this._formatHM(this.previewEnd);
       if (this.hudDur) this.hudDur.textContent = `(${this._formatHM(this.previewEnd - this.previewStart)})`;
       if (this.hudFill) this.hudFill.style.width = '0%';
+      if (this.hudThumb) this.hudThumb.style.left = '0%';
       this.previewHud.style.display = 'flex';
     }
 
@@ -277,6 +344,10 @@ class VideoPlayerController {
 
   stopPreview() {
     this.previewActive = false;
+    this.isHudDragging = false;
+    if (this.hudWrapper) {
+      this.hudWrapper.classList.remove('is-dragging');
+    }
     if (this.previewHud) {
       this.previewHud.style.display = 'none';
     }
@@ -343,18 +414,24 @@ class VideoPlayerController {
         this.pause();
         this.seekTo(this.previewEnd);
         if (this.hudFill) this.hudFill.style.width = '100%';
+        if (this.hudThumb) this.hudThumb.style.left = '100%';
         this.currentTime = this.previewEnd;
         this._broadcastTime(this.previewEnd);
         return;
       }
 
-      // Live progress within the clip time zone
-      const range = Math.max(0.1, this.previewEnd - this.previewStart);
-      const elapsed = Math.max(0, time - this.previewStart);
-      const pct = Math.min(100, Math.max(0, (elapsed / range) * 100));
+      // Live progress within the clip time zone (skip if user is dragging)
+      if (!this.isHudDragging) {
+        const range = Math.max(0.1, this.previewEnd - this.previewStart);
+        const elapsed = Math.max(0, time - this.previewStart);
+        const pct = Math.min(100, Math.max(0, (elapsed / range) * 100));
 
-      if (this.hudFill) {
-        this.hudFill.style.width = `${pct}%`;
+        if (this.hudFill) {
+          this.hudFill.style.width = `${pct}%`;
+        }
+        if (this.hudThumb) {
+          this.hudThumb.style.left = `${pct}%`;
+        }
       }
     }
 
