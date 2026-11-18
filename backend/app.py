@@ -37,6 +37,8 @@ async def add_pna_and_cors_headers(request, call_next):
         return resp
     response = await call_next(request)
     response.headers["Access-Control-Allow-Private-Network"] = "true"
+    if request.url.path.endswith((".js", ".html", ".css")) or request.url.path == "/":
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
     return response
 
 # Include API Routers
